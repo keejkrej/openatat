@@ -1,0 +1,12 @@
+[package]
+name = "openatat-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared protocol types for openatatd and openatat-ui"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

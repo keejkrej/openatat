@@ -1,0 +1,10 @@
+[package]
+name = "openatat-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "On-demand gpui-ce shell (Settings, studio, history, first-run)"
+
+[dependencies]
+openatat-ipc.workspace = true

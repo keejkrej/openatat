@@ -1,0 +1,288 @@
+# OpenAtat specification
+
+OpenAtat is an open, cross-platform clone of [Atat](https://atatapp.com) (`@@` for Mac). Product facts below come from the Atat [manual](https://atatapp.com/manual) and [FAQ](https://atatapp.com/faq). This file is the contract for the native applet, the on-demand UI process, and the ship order.
+
+OpenAtat never becomes the active app.
+
+## 1. Product contract
+
+Type `@@` in any text field. OpenAtat gathers what the user is looking at, runs the CLI agent they already have, and puts the answer back in the line they were typing.
+
+It is not another workspace. There are no sessions to maintain. Call it up, get the result, get out of the way.
+
+### What it is
+
+- A launcher for agents already on the machine. Bring your own CLI later (Claude Code, Codex, Grok, Cursor, Pi, Hermes, OpenCode, or any custom CLI). OpenAtat does not ship a bundled LLM. P0 runs `echo` or an `openatat-agent` shim.
+- A gatherer. A still of the active display is attached before the agent runs. Later phases add selection, clipboard, files, recordings, and annotation. The user sees attachments as removable tiles before send.
+- An inserter. Every answer lands in a **preview card** first. Nothing is typed into a document or copied without going through that card. `Tab` inserts when a text field is still focused; otherwise `Tab` copies. Insertion is clipboard-first, then a focus check, then AT-SPI (Linux) / AX (Mac) / UIA (Windows). If focus moved, insert aborts; the result is still on the clipboard.
+- Local. Prompts never go through our servers. History is one local file. No OpenAtat account.
+
+### The `@@` trigger
+
+- The trigger is always `@@`, case-insensitive, typed in place. There is **no global summon hotkey**. Atat’s FAQ is explicit: the Orb is one click away and `@@` already works wherever you can type; a summon hotkey would add shortcut conflicts without a faster path.
+- Detection buffer holds the **last two characters only**. Nothing typed before or after the trigger is collected.
+- **Secure fields are skipped on every key** and the result is never cached. Password / secure-input roles are re-probed each event.
+- **IME must not fire the trigger.** Composing / preedit (Chinese, Japanese, and other input methods) is ignored. Only committed characters enter the two-character buffer.
+- When the trigger fires in a text field, the two `@` characters are removed from the client and a small overlay opens next to the work. Keystrokes then go to OpenAtat until `Esc` / `Tab` / dismiss. Focused on something that clearly cannot accept text, OpenAtat still opens (later: window capture + optional app-layout tile) and `Tab` copies rather than inserting.
+- Terminals, web pages, text controls, and anything ambiguous stay on the normal input path: if a place might accept typing, treat it as an input.
+
+### Overlay and focus
+
+- The overlay is a **small popover**, not a fullscreen dim/blur.
+- OpenAtat must not become the active application. The client keeps its “active app” identity.
+- Keyboard interactivity is **OnDemand, and only while the prompt / preview is up**. Idle has no mapped surface.
+- `Esc` cancels from any state.
+- Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) is P1. Handoff (`⌘Return` / Super+Return → real agent session) is P1.
+
+### Preview, insert, clipboard
+
+1. Agent finishes → preview card shows the result.
+2. User presses `Tab`.
+3. Result is written to the clipboard **before** insertion starts (`wlr-data-control` / `wl-copy` on Linux).
+4. Re-read the focused window identity. If the address changed, **abort insert**.
+5. If a text field is still focused, insert via the platform a11y API. If not, the clipboard copy is the product outcome.
+
+A failed insert is still a copy.
+
+### History
+
+Each stored entry is exactly four fields: `id`, `timestamp`, `entry` (entry point), `prompt`. Never store agent responses, screenshots, or attached context. Linux path: `~/.local/share/openatat`.
+
+### Process split (locked)
+
+This split is a product decision. Do not revisit it for convenience.
+
+| Process | Owns | Lifetime |
+| --- | --- | --- |
+| `openatatd` (native applet) | `@@` overlay, Orb (later), trigger, insert, capture, selection bar (later) | Always on. Idle has **zero GPU windows**. |
+| `openatat-ui` (gpui-ce) | Settings, studio / annotation, history browser, first-run | Spawn on demand, quit when idle. |
+
+P0 does **not** use gpui for the overlay. gpui-ce 0.3 has `LayerShell` / `PopUp` / `Transparent` / `focus: false`, but that is **not** a nonactivating panel.
+
+| OS | Overlay host | Why not gpui |
+| --- | --- | --- |
+| macOS | `NSPanel` with `NSWindowStyleMaskNonactivatingPanel` | Required so @@ never becomes the active app. |
+| Windows | `WS_EX_NOACTIVATE` (and typically `WS_EX_TOOLWINDOW`) | Same nonactivating contract. |
+| Linux / Omarchy | Native `zwlr_layer_shell_v1` surface **inside the applet** | Software `wl_shm`. No GPU process at idle. |
+
+Quickshell is Omarchy 4’s shell (Hyprland + Quickshell; Waybar is gone). A Quickshell plugin is **only** the bar chip, and only later. Do not add Waybar modules. Do not use iced, gtk4-layer-shell as the main UI, AGS, or astal.
+
+Capture stays in the daemon. gpui `ScreenCaptureFrame` is a stub.
+
+### Agents
+
+P0: dummy CLI (`echo` or `openatat-agent` if present / `OPENATAT_AGENT`).  
+Later: visible, editable command template; conservative read-only defaults in a scratch workspace; handoff launches the user’s own terminal or agent app. Prompts are passed as data, never spliced into a shell string.
+
+## 2. Capture inventory (C1–C19)
+
+| ID | Capture | P0 | Notes |
+| --- | --- | --- | --- |
+| C1 | Auto-still of the **active output** when `@@` fires | **Yes** | Silent. grim on Linux. No portal picker on the auto-attach path. Downscale long-edge ~1600–1920. Removable tile. |
+| C2 | Area screenshot | No | Atat `⌘⇧4`. Interactive region. |
+| C3 | Window screenshot | No | Atat window target. |
+| C4 | Full-display / explicit display still | No | Atat `⌘⇧3`. C1 is the auto path. |
+| C5 | All-in-one picker | No | Atat `⌘⇧5`: shot / window / scroll / OCR / record / Ask. |
+| C6 | Scrolling capture | No | Stub / comment only. |
+| C7 | Video recording | No | Stub / comment only. |
+| C8 | GIF recording | No | Stub / comment only. |
+| C9 | OCR | No | Stub / comment only. |
+| C10 | Live text selection (selection bar) | No | Mouse selections only in Atat. Secure input never read. |
+| C11 | File-manager working directory | No | Finder on Mac. Nautilus has **no selection D-Bus API**. |
+| C12 | File-manager selected files | No | Same Nautilus landmine. Right-click “Ask” needs no extra permission on Mac. |
+| C13 | Current clipboard item as a tile | No | Distinct from insert’s clipboard-first write. |
+| C14 | Clipboard history shelf | No | Atat `⌘⇧V`. Passwords never enter history. |
+| C15 | App-layout / a11y-tree tile | No | When focus is clearly not a text field. |
+| C16 | Drag-and-drop onto the Orb | No | Orb is later; no global hotkey. |
+| C17 | Annotation / crop before send | No | Studio lives in `openatat-ui`. |
+| C18 | Video trim / export | No | Studio. |
+| C19 | Recording keyboard bezel | No | KeyCastr-style overlay during record. |
+
+C1 is the only live capture in P0. C6–C19 exist in this inventory so later work does not invent a second taxonomy.
+
+## 3. OS API matrix
+
+| Concern | Linux / Omarchy 4 (Hyprland + Quickshell) | macOS | Windows |
+| --- | --- | --- | --- |
+| Overlay | Native `zwlr_layer_shell_v1` in `openatatd`, `wl_shm`, `KeyboardInteractivity::OnDemand` while up | `NSPanel` nonactivating | `WS_EX_NOACTIVATE` |
+| Trigger (product) | Fcitx5 addon or IBus engine; committed text only | Input Monitoring + IME-aware tap | TSF / IME-aware hook; not a raw hotkey |
+| Trigger (P0 demo) | Unix socket + `--demo` / `--once`. Not a product hotkey | cfg stub | cfg stub |
+| Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 password edit every key |
+| Screen still | **grim** (`-o` active output). No xdg-desktop-portal picker on auto-attach | ScreenCaptureKit | Windows.Graphics.Capture (WGC) |
+| Downscale | CPU, long-edge 1600–1920 | Same policy | Same policy |
+| Insert | AT-SPI `EditableText.InsertText` when a text field is focused | `AXUIElement` | UI Automation |
+| Focus identity | `hyprctl activewindow` **address** | PID + AX window | `HWND` |
+| Clipboard | `wlr-data-control` via `wl-clipboard-rs`, `wl-copy` fallback | `NSPasteboard` | Win32 clipboard |
+| File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` |
+| Settings / studio | `openatat-ui` gpui-ce, on demand | same | same |
+| Bar chip | Quickshell plugin later — **not** Waybar | menu extra / Orb | tray later |
+| Capture in gpui | `ScreenCaptureFrame` is a stub — do not use | stub | stub |
+
+Mac and Windows modules in this repo are compile-gated placeholders with comments pointing at the rows above.
+
+## 4. Performance budgets
+
+These are P0 targets for the Linux spike, not promises about a shipped installer.
+
+| Path | Budget | Why |
+| --- | --- | --- |
+| Idle applet | No GPU process, no mapped layer surface, no gpui window | “Never become the active app” and Omarchy laptops |
+| Idle RSS | Prefer well under 40 MB | Native applet, software stack |
+| `@@` → popover first paint | < 80 ms after trigger (excluding first Wayland connect) | Feels like typing, not launching |
+| C1 still (grim + downscale) | < 250 ms on a 1080p–1440p output | Tile appears with the prompt |
+| Dummy agent (`echo`) | < 50 ms | Preview card is mandatory even when the CLI is instant |
+| Clipboard write | < 40 ms | Must complete before insert starts |
+| Focus re-check (`hyprctl`) | < 15 ms | Abort beats a wrong-window insert |
+| AT-SPI insert | Best-effort; timeout ~400 ms then keep the copy | Clipboard is the fallback |
+| History append | < 10 ms, durable JSONL | Local only |
+
+Reduce Motion (later) skips the snapshot “flight” animation. P0 has no animation.
+
+## 5. Permissions
+
+Every permission is optional. Deny one and the rest of the app keeps working; that feature stays dormant.
+
+### Linux / Omarchy (P0)
+
+| Need | What it unlocks | How |
+| --- | --- | --- |
+| `WAYLAND_DISPLAY` + layer-shell | Overlay popover | Hyprland ships `zwlr_layer_shell_v1` |
+| grim allowed to capture outputs | C1 auto-still | Hyprland: grim is silent; do **not** route auto-attach through xdg-desktop-portal Screenshot (picker) |
+| `hyprctl` | Active output name + window address | Hyprland instance signature socket |
+| `wlr-data-control` or `wl-copy` | Clipboard-first insert | Hyprland supports data-control |
+| AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
+| Fcitx5 or IBus (later) | Product `@@` trigger | Addon / engine; see IME plan |
+| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | P0 demo trigger | Dev only |
+
+No Input Monitoring analogue is required for the P0 demo path. The product path will need the IME addon installed.
+
+### macOS (later)
+
+Input Monitoring (trigger), Accessibility (insert + selection bar), Screen Recording (capture / OCR), Automation for Finder, Microphone only if the user records audio. First-run can finish with none of them.
+
+### Windows (later)
+
+UI Access / UIA, WGC consent, optional clipboard history access.
+
+### Data
+
+Prompts and context go to the local CLI only. History is `id`, `timestamp`, `entry`, `prompt`. OpenAtat does not run a telemetry service in P0.
+
+## 6. IME plan (product path, not a hotkey)
+
+A global hotkey is **not** the product. The product is “the user typed `@@` in the field.”
+
+### Why an IME-shaped filter
+
+On Linux there is no supported equivalent of macOS Input Monitoring that is both compositor-portable and IME-correct. Reading raw evdev or grabbing Hyprland keys:
+
+- fires inside password fields unless we re-implement secure detection in the same path
+- fires in the middle of CJK preedit
+- becomes a de facto summon hotkey
+
+An IME filter sees text the same way the client does: compose first, commit later.
+
+### Shape
+
+```
+key / compose event
+    → probe focused field (AT-SPI, no cache)
+    → if secure: drop, clear buffer, stop
+    → if preedit / composing: do not touch the two-char buffer
+    → if committed text: push into last-two-chars (case-fold for `@`)
+    → if buffer == "@@": swallow the two characters, notify openatatd
+```
+
+### Backends
+
+| Backend | Crate / vehicle | P0 | Later |
+| --- | --- | --- | --- |
+| Filter interface + detection buffer | In-process Rust (`openatatd::trigger`) | **Yes** | Stable |
+| Dev Wayland / test path | Unix socket, `openatatd trigger`, `--demo` | **Yes** | Keep for CI |
+| Fcitx5 addon | **No usable Rust addon crate.** Write a small C++ `fcitx5-openatat` that talks to the socket | Stub interface | P1 |
+| IBus engine | `ibus` C API; no maintained high-level Rust engine crate we will ship on | Stub interface | P1 |
+
+The P0 module is intentionally IME-shaped so the Fcitx5/IBus addon becomes a thin adapter rather than a second detector.
+
+### Swallowing `@@`
+
+The addon (not the overlay) deletes the two characters from the client — typically by not forwarding them, or by committing a deletion. The daemon must not send synthetic backspaces into an unknown window as a first choice.
+
+## 7. Ship order
+
+### P0 — Linux / Omarchy spike (this repo)
+
+- `SPEC.md`, workspace, `openatatd`, `openatat-ui` placeholder.
+- IME-filter module + detection tests + dev trigger path.
+- Native layer-shell popover (software `wl_shm`). No gpui overlay.
+- C1 via grim, downscale, removable tile.
+- Dummy CLI, mandatory preview, `Tab` = clipboard then AT-SPI, abort on `hyprctl` address change.
+- `Esc` cancels. JSONL history in `~/.local/share/openatat`.
+- Mac/Win cfg-gated stubs.
+- `cargo test` / `cargo build` on Linux.
+
+### P1 — Make `@@` real on Omarchy
+
+- Fcitx5 addon (and/or IBus) that implements the filter contract.
+- BYO CLI runner (template, scratch dir, no shell interpolation).
+- Preview refine (`R`).
+- `openatat-ui` Settings + history browser (gpui-ce), spawn/quit.
+- Selection bar start (C10) if AT-SPI selection is trustworthy.
+- Quickshell bar chip (not Waybar).
+- Handoff to a terminal.
+
+### P2 — Other OS + the rest of C2–C19
+
+- Mac `NSPanel` + ScreenCaptureKit + AX + Finder.
+- Windows `WS_EX_NOACTIVATE` + WGC + UIA.
+- Orb (no summon hotkey).
+- Studio / annotation in `openatat-ui`.
+- Clipboard shelf, scrolling capture, OCR, recording.
+- Nautilus: do not invent a D-Bus API; document a user-driven tile or a future GNOME extension.
+
+## 8. Landmines
+
+1. **Nonactivating is the product.** An xdg-toplevel, a focused gpui window, or layer-shell `Exclusive` keyboard at idle makes OpenAtat “the active app.”
+2. **gpui-ce layer-shell ≠ NSPanel.** Fine for Settings. Illegal for the `@@` overlay.
+3. **gpui `ScreenCaptureFrame` is a stub.** Capture stays in `openatatd`.
+4. **Portal screenshot pickers.** Auto-attach must stay grim (or a future silent protocol). A chooser breaks the Atat moment.
+5. **IME compose.** Two `@` in preedit are not a trigger. Losing compose chars is a ship blocker.
+6. **Secure fields.** Probe every key. Never cache “this window is fine.”
+7. **Two-character buffer.** No ring of keystrokes, no accessibility text dump for detection.
+8. **Insert into the wrong window.** Compare Hyprland window **address** (not title). Abort > guess.
+9. **Clipboard after insert, or insert without clipboard.** Order is clipboard first.
+10. **Nautilus has no selection D-Bus API.** Do not scrape the view or guess URIs.
+11. **Waybar is gone on Omarchy 4.** Quickshell chip later; no Waybar module.
+12. **No bundled model.** Dummy `echo` in P0; BYO CLI later.
+13. **Synthetic backspaces** into the client are a last resort and must be gated on the same focus address.
+14. **AT-SPI in browsers / Electron / games** is incomplete. Clipboard-first saves the result.
+15. **Recording, scrolling, OCR, Orb, shelf, studio** are out of P0. Stubs and comments only.
+
+## 9. Crate choices (P0)
+
+Investigated and used:
+
+| Need | Crate | Why |
+| --- | --- | --- |
+| Wayland + layer-shell | `wayland-client` 0.31 + `smithay-client-toolkit` 0.20 | Real `zwlr_layer_shell_v1` client, `wl_shm`, seats. Matches the Smithay `simple_layer` pattern. |
+| Clipboard | `wl-clipboard-rs` 0.9 | Implements `ext-data-control` / `wlr-data-control`. `wl-copy` binary as fallback. |
+| Still decode / downscale | `image` 0.25 (png only) | CPU. No GPU image pipeline. |
+| Overlay glyphs | `font8x8` 0.3 | Software bitmap, no fontconfig / FreeType at idle. |
+| AT-SPI insert | `zbus` 5 calling `org.a11y.atspi.*` | Same bus the `atspi` crate (Odilia) wraps. P0 stays on a short blocking runtime via `zbus` sync. `atspi` remains the higher-level option for P1 event streams. |
+| JSON / errors | `serde`, `serde_json`, `thiserror` | IPC + history. |
+
+No crate found (documented, not invented):
+
+| Need | Reality |
+| --- | --- |
+| Fcitx5 addon in Rust | No shippable addon SDK crate. C++ addon in P1. |
+| IBus engine in Rust | No maintained engine crate we will depend on. |
+| Nautilus selection | No D-Bus API. |
+| gpui nonactivating panel | Does not exist. |
+| Silent ScreenCaptureKit / WGC wrappers we need on Linux | N/A; Mac/Win stubs only. |
+
+Forbidden UI stacks for the overlay: iced, gtk4-layer-shell-as-main-UI, AGS, astal, Waybar, gpui.
+
+## 10. P0 success
+
+`cargo test` and `cargo build` succeed on Linux. This file lives in the repo. The README tells a human how to run `openatatd` on Hyprland. The overlay path is native layer-shell, not gpui.
