@@ -1,0 +1,25 @@
+[package]
+name = "openatatd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Always-on native OpenAtat applet (overlay, trigger, capture, insert)"
+
+[dependencies]
+openatat-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+font8x8 = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = "0.20"
+wayland-client = "0.31"
+wl-clipboard-rs = "0.9"
+zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
+
+[dev-dependencies]
+serde_json.workspace = true
