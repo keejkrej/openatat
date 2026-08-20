@@ -33,10 +33,7 @@ fn run_agent_cmd(cmd: &str, prompt: &str) -> Result<String> {
     }
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        return Err(Error::msg(format!(
-            "agent `{cmd}` exited {}",
-            out.status
-        )));
+        return Err(Error::msg(format!("agent `{cmd}` exited {}", out.status)));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }

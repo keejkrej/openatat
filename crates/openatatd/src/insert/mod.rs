@@ -23,7 +23,9 @@ pub fn tab_insert(text: &str, expected: &FocusSnapshot) -> Result<InsertOutcome>
         Ok(true) => Ok(InsertOutcome::Inserted),
         Ok(false) => Ok(InsertOutcome::CopiedOnly),
         Err(e) => {
-            eprintln!("openatatd: insert failed after clipboard write ({e}); result is still copied");
+            eprintln!(
+                "openatatd: insert failed after clipboard write ({e}); result is still copied"
+            );
             Ok(InsertOutcome::CopiedOnly)
         }
     }

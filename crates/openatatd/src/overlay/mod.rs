@@ -42,31 +42,3 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
 pub fn still_thumb(still: &Still) -> Result<(u32, u32, Vec<u8>)> {
     still.thumbnail_argb(120, 64)
 }
-
-#[cfg(target_os = "macos")]
-mod macos {
-    use super::*;
-
-    pub fn run(_session: &mut Session) -> Result<OverlayEnd> {
-        // NSPanel + NSWindowStyleMaskNonactivatingPanel.
-        // CollectionBehavior: canJoinAllSpaces, fullScreenAuxiliary.
-        // Do not use an NSWindow that can become key in the normal app sense.
-        // gpui-ce PopUp / focus:false is not this.
-        Err(crate::error::Error::msg(
-            "macOS overlay is a stub: NSPanel nonactivating (not gpui)",
-        ))
-    }
-}
-
-#[cfg(target_os = "windows")]
-mod windows {
-    use super::*;
-
-    pub fn run(_session: &mut Session) -> Result<OverlayEnd> {
-        // WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST layered popup.
-        // Do not call SetForegroundWindow. Do not use a normal WS_OVERLAPPEDWINDOW.
-        Err(crate::error::Error::msg(
-            "Windows overlay is a stub: WS_EX_NOACTIVATE (not gpui)",
-        ))
-    }
-}

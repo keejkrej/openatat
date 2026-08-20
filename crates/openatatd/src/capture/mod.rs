@@ -51,10 +51,7 @@ pub fn downscale_long_edge(png: &[u8], long_edge: u32) -> Result<Still> {
     };
     let (width, height) = img.dimensions_u32();
     let mut out = Vec::new();
-    img.write_to(
-        &mut std::io::Cursor::new(&mut out),
-        image::ImageFormat::Png,
-    )?;
+    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)?;
     Ok(Still {
         png: out,
         width,
@@ -103,10 +100,7 @@ mod linux {
     pub fn capture_active_output(output: Option<&str>) -> Result<Still> {
         // grim is silent on Hyprland. Do not use xdg-desktop-portal Screenshot
         // on this path — that presents a picker and breaks the Atat moment.
-        let tmp = std::env::temp_dir().join(format!(
-            "openatat-c1-{}.png",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("openatat-c1-{}.png", std::process::id()));
         let mut cmd = Command::new("grim");
         if let Some(name) = output {
             cmd.args(["-o", name]);
@@ -166,10 +160,7 @@ mod tests {
         }
         let mut png = Vec::new();
         image::DynamicImage::ImageRgba8(img)
-            .write_to(
-                &mut std::io::Cursor::new(&mut png),
-                image::ImageFormat::Png,
-            )
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let still = downscale_long_edge(&png, 1760).unwrap();
         assert_eq!(still.width.max(still.height), 1760);
@@ -181,10 +172,7 @@ mod tests {
         let img = image::RgbaImage::new(64, 32);
         let mut png = Vec::new();
         image::DynamicImage::ImageRgba8(img)
-            .write_to(
-                &mut std::io::Cursor::new(&mut png),
-                image::ImageFormat::Png,
-            )
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
         let still = downscale_long_edge(&png, 1760).unwrap();
         assert_eq!((still.width, still.height), (64, 32));

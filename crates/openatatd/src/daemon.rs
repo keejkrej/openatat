@@ -58,7 +58,8 @@ fn handle_client(stream: UnixStream) -> Result<()> {
     writeln!(
         stream,
         "{}",
-        serde_json::to_string(&reply).unwrap_or_else(|_| r#"{"status":"error","message":"encode"}"#.into())
+        serde_json::to_string(&reply)
+            .unwrap_or_else(|_| r#"{"status":"error","message":"encode"}"#.into())
     )?;
     Ok(())
 }

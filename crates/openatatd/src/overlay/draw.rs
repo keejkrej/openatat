@@ -32,27 +32,91 @@ pub struct Frame {
 pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &[u8])>) -> Vec<u8> {
     let mut buf = vec![0u8; (width * height * 4) as usize];
     fill_rect(&mut buf, width, 0, 0, width, height, COL_BG);
-    fill_rect(&mut buf, width, 8, 8, width.saturating_sub(16), height.saturating_sub(16), COL_PANEL);
+    fill_rect(
+        &mut buf,
+        width,
+        8,
+        8,
+        width.saturating_sub(16),
+        height.saturating_sub(16),
+        COL_PANEL,
+    );
 
     text(&mut buf, width, 20, 18, "OpenAtat", COL_ACCENT, 2);
-    text(&mut buf, width, width.saturating_sub(36), 16, "x", COL_MUTED, 2);
+    text(
+        &mut buf,
+        width,
+        width.saturating_sub(36),
+        16,
+        "x",
+        COL_MUTED,
+        2,
+    );
 
     match frame.phase {
         Phase::Prompt => {
-            text(&mut buf, width, 20, 52, "Type a prompt  Return runs  Esc cancels", COL_MUTED, 1);
-            fill_rect(&mut buf, width, 20, 72, width.saturating_sub(40), 36, COL_BG);
+            text(
+                &mut buf,
+                width,
+                20,
+                52,
+                "Type a prompt  Return runs  Esc cancels",
+                COL_MUTED,
+                1,
+            );
+            fill_rect(
+                &mut buf,
+                width,
+                20,
+                72,
+                width.saturating_sub(40),
+                36,
+                COL_BG,
+            );
             let shown = truncate(&frame.prompt, 48);
             let caret = format!("{shown}_");
             text(&mut buf, width, 26, 82, &caret, COL_TEXT, 1);
         }
         Phase::Running => {
-            text(&mut buf, width, 20, 72, "Running dummy agent…", COL_ACCENT, 1);
+            text(
+                &mut buf,
+                width,
+                20,
+                72,
+                "Running dummy agent…",
+                COL_ACCENT,
+                1,
+            );
         }
         Phase::Preview => {
-            text(&mut buf, width, 20, 52, "Preview  Tab inserts/copies  Esc cancels", COL_MUTED, 1);
-            fill_rect(&mut buf, width, 20, 72, width.saturating_sub(40), 90, COL_BG);
+            text(
+                &mut buf,
+                width,
+                20,
+                52,
+                "Preview  Tab inserts/copies  Esc cancels",
+                COL_MUTED,
+                1,
+            );
+            fill_rect(
+                &mut buf,
+                width,
+                20,
+                72,
+                width.saturating_sub(40),
+                90,
+                COL_BG,
+            );
             for (i, line) in wrap(&frame.preview, 52).into_iter().take(6).enumerate() {
-                text(&mut buf, width, 26, 80 + (i as u32) * 12, &line, COL_TEXT, 1);
+                text(
+                    &mut buf,
+                    width,
+                    26,
+                    80 + (i as u32) * 12,
+                    &line,
+                    COL_TEXT,
+                    1,
+                );
             }
         }
     }
@@ -69,7 +133,15 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         text(&mut buf, width, 154, 210, "auto-still", COL_MUTED, 1);
     }
 
-    text(&mut buf, width, 20, height.saturating_sub(28), &frame.status, COL_MUTED, 1);
+    text(
+        &mut buf,
+        width,
+        20,
+        height.saturating_sub(28),
+        &frame.status,
+        COL_MUTED,
+        1,
+    );
     buf
 }
 
@@ -82,8 +154,8 @@ pub fn hit_close(x: f64, y: f64, width: u32) -> bool {
 }
 
 fn fill_rect(buf: &mut [u8], stride_px: u32, x: u32, y: u32, w: u32, h: u32, color: u32) {
-    let bytes = color.to_le_bytes(); // B,G,R,A for 0xAARRGGBB? 
-    // color is 0xAARRGGBB; to_le_bytes on LE is B,G,R,A. Matches simple_layer.
+    let bytes = color.to_le_bytes(); // B,G,R,A for 0xAARRGGBB?
+                                     // color is 0xAARRGGBB; to_le_bytes on LE is B,G,R,A. Matches simple_layer.
     for yy in y..(y + h) {
         for xx in x..(x + w) {
             if xx >= stride_px {
@@ -119,7 +191,11 @@ fn blit(buf: &mut [u8], stride_px: u32, x: u32, y: u32, tw: u32, th: u32, pixels
 
 fn text(buf: &mut [u8], stride_px: u32, mut x: u32, y: u32, s: &str, color: u32, scale: u32) {
     for ch in s.chars() {
-        let idx = if (ch as u32) < 128 { ch as usize } else { b'?' as usize };
+        let idx = if (ch as u32) < 128 {
+            ch as usize
+        } else {
+            b'?' as usize
+        };
         let glyph = BASIC_LEGACY[idx];
         for (row, bits) in glyph.iter().enumerate() {
             for col in 0..8 {

@@ -61,7 +61,9 @@ pub enum DaemonRequest {
         focus: FocusSnapshot,
     },
     /// Dev helper: feed committed text without a compositor seat.
-    CommitText { text: String },
+    CommitText {
+        text: String,
+    },
     Ping,
 }
 

@@ -48,7 +48,10 @@ pub fn active_window() -> Result<HyprWindow> {
 }
 
 pub fn active_output() -> Option<String> {
-    let out = Command::new("hyprctl").args(["monitors", "-j"]).output().ok()?;
+    let out = Command::new("hyprctl")
+        .args(["monitors", "-j"])
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }

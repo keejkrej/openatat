@@ -5,9 +5,7 @@
 
 mod ime;
 
-pub use ime::{
-    FieldKind, ImeAction, ImeBackend, ImeEvent, ImeFilter, IbusBackend, Fcitx5Backend,
-};
+pub use ime::{Fcitx5Backend, FieldKind, IbusBackend, ImeAction, ImeBackend, ImeEvent, ImeFilter};
 
 /// Last two committed characters. Nothing before or after is kept.
 #[derive(Debug, Clone, Default)]

@@ -23,8 +23,10 @@ impl Error {
                 let l = m.to_ascii_lowercase();
                 l.contains("wayland") || l.contains("xdg_runtime") || l.contains("connect")
             }
-            Self::Io(e) => e.kind() == std::io::ErrorKind::ConnectionRefused
-                || e.kind() == std::io::ErrorKind::NotFound,
+            Self::Io(e) => {
+                e.kind() == std::io::ErrorKind::ConnectionRefused
+                    || e.kind() == std::io::ErrorKind::NotFound
+            }
             _ => false,
         }
     }

@@ -64,8 +64,8 @@ pub fn run_headless(source: TriggerSource, prompt: &str) -> Result<SessionEnd> {
 
 fn run_headless_on(mut session: Session) -> Result<SessionEnd> {
     if session.prompt.is_empty() {
-        session.prompt = std::env::var("OPENATAT_PROMPT")
-            .unwrap_or_else(|_| "hello from openatat".into());
+        session.prompt =
+            std::env::var("OPENATAT_PROMPT").unwrap_or_else(|_| "hello from openatat".into());
     }
     crate::history::append_prompt(session.entry, &session.prompt)?;
     let preview = crate::agent::run_dummy(&session.prompt)?;

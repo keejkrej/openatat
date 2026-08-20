@@ -9,7 +9,9 @@ use std::num::NonZeroU32;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
-use smithay_client_toolkit::seat::keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers};
+use smithay_client_toolkit::seat::keyboard::{
+    KeyEvent, KeyboardHandler, Keysym, Modifiers, RawModifiers,
+};
 use smithay_client_toolkit::seat::pointer::{PointerEvent, PointerEventKind, PointerHandler};
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::shell::wlr_layer::{
@@ -48,13 +50,8 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
     let shm = Shm::bind(&globals, &qh).map_err(|_| Error::msg("wl_shm is not available"))?;
 
     let surface = compositor.create_surface(&qh);
-    let layer = layer_shell.create_layer_surface(
-        &qh,
-        surface,
-        Layer::Overlay,
-        Some("openatat"),
-        None,
-    );
+    let layer =
+        layer_shell.create_layer_surface(&qh, surface, Layer::Overlay, Some("openatat"), None);
     // Small popover, not a reserved bar, not Exclusive (that steals the seat).
     layer.set_anchor(Anchor::TOP);
     layer.set_margin(80, 0, 0, 0);
@@ -260,13 +257,7 @@ impl CompositorHandler for Overlay {
     ) {
     }
 
-    fn frame(
-        &mut self,
-        _: &Connection,
-        qh: &QueueHandle<Self>,
-        _: &wl_surface::WlSurface,
-        _: u32,
-    ) {
+    fn frame(&mut self, _: &Connection, qh: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {
         if self.dirty {
             self.draw(qh);
         }
