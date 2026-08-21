@@ -14,11 +14,7 @@ pub fn run_daemon() -> Result<()> {
     let mut ibus = IbusBackend;
     let _ = fcitx.start();
     let _ = ibus.start();
-    eprintln!(
-        "openatatd: IME backends registered as stubs ({}, {}). Product trigger is the addon, not a hotkey.",
-        fcitx.name(),
-        ibus.name()
-    );
+    let _ = (fcitx.name(), ibus.name());
 
     let sock = trigger_socket_path();
     bind_socket(&sock)?;

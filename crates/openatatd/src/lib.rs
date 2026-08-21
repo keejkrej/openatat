@@ -70,8 +70,8 @@ USAGE:
   openatatd --headless      One session without a layer surface
   openatatd trigger         Ping a running daemon (dev path, not a hotkey)
 
-The product trigger is an IME filter (Fcitx5/IBus), not a global bind.
-See SPEC.md and README.md.
+The product trigger is the Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
+See SPEC.md §6 and ime/fcitx5-openatat/README.md.
 "
     );
 }

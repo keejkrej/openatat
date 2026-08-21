@@ -105,7 +105,7 @@ C1 is the only live capture in P0. C6–C19 exist in this inventory so later wor
 | Concern | Linux / Omarchy 4 (Hyprland + Quickshell) | macOS | Windows |
 | --- | --- | --- | --- |
 | Overlay | Native `zwlr_layer_shell_v1` in `openatatd`, `wl_shm`, `KeyboardInteractivity::OnDemand` while up | `NSPanel` nonactivating | `WS_EX_NOACTIVATE` |
-| Trigger (product) | Fcitx5 addon or IBus engine; committed text only | Input Monitoring + IME-aware tap | TSF / IME-aware hook; not a raw hotkey |
+| Trigger (product) | Fcitx5 module `fcitx5-openatat`; committed text only | Input Monitoring + IME-aware tap | TSF / IME-aware hook; not a raw hotkey |
 | Trigger (P0 demo) | Unix socket + `--demo` / `--once`. Not a product hotkey | cfg stub | cfg stub |
 | Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 password edit every key |
 | Screen still | **grim** (`-o` active output). No xdg-desktop-portal picker on auto-attach | ScreenCaptureKit | Windows.Graphics.Capture (WGC) |
@@ -151,10 +151,10 @@ Every permission is optional. Deny one and the rest of the app keeps working; th
 | `hyprctl` | Active output name + window address | Hyprland instance signature socket |
 | `wlr-data-control` or `wl-copy` | Clipboard-first insert | Hyprland supports data-control |
 | AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
-| Fcitx5 or IBus (later) | Product `@@` trigger | Addon / engine; see IME plan |
-| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | P0 demo trigger | Dev only |
+| Fcitx5 (`fcitx5-openatat`) | Product `@@` trigger | C++ module; see IME plan |
+| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger | `fcitx5-openatat` and `openatatd trigger` |
 
-No Input Monitoring analogue is required for the P0 demo path. The product path will need the IME addon installed.
+The product path needs `fcitx5-openatat` installed and Fcitx5 running. `--demo` / `openatatd trigger` stay available without the addon.
 
 ### macOS (later)
 
@@ -195,14 +195,33 @@ key / compose event
 
 ### Backends
 
-| Backend | Crate / vehicle | P0 | Later |
-| --- | --- | --- | --- |
-| Filter interface + detection buffer | In-process Rust (`openatatd::trigger`) | **Yes** | Stable |
-| Dev Wayland / test path | Unix socket, `openatatd trigger`, `--demo` | **Yes** | Keep for CI |
-| Fcitx5 addon | **No usable Rust addon crate.** Write a small C++ `fcitx5-openatat` that talks to the socket | Stub interface | P1 |
-| IBus engine | `ibus` C API; no maintained high-level Rust engine crate we will ship on | Stub interface | P1 |
+| Backend | Crate / vehicle | Status |
+| --- | --- | --- |
+| Filter interface + detection buffer | In-process Rust (`openatatd::trigger`) and C++ (`ime/fcitx5-openatat/src/openatat_filter.*`) | **Same contract.** Do not add a second detector. |
+| Dev Wayland / test path | Unix socket, `openatatd trigger`, `--demo` | Keep for CI / no-IME sessions |
+| Fcitx5 addon | C++ module `ime/fcitx5-openatat`. No usable Rust addon crate. | **Product path (Omarchy / Arch).** See build/install below. |
+| IBus engine | `ibus` C API; no maintained high-level Rust engine crate we will ship on | Optional later. Do not block Fcitx5. |
 
-The P0 module is intentionally IME-shaped so the Fcitx5/IBus addon becomes a thin adapter rather than a second detector.
+### Building `fcitx5-openatat`
+
+Hook: Fcitx5 **module** (`AddonInstance`) watching `InputContextKeyEvent` at `PostInputMethod` plus `Instance::CommitFilter`. That is the thinnest pair that sees committed characters (keyboard keys that the IM did not consume, and CJK `commitString`) and can swallow them (`filterAndAccept` / rewrite the commit / `deleteSurroundingText` for a leftover `@`). Compose is ignored via `Instance::isComposing` and empty preedit. Secure fields are re-probed every key (`CapabilityFlag::PasswordOrSensitive`, plus optional AT-SPI `PasswordText`). Missing `trigger.sock` is silent.
+
+```bash
+# Arch / Omarchy
+sudo pacman -S --needed fcitx5 extra-cmake-modules cmake ninja pkgconf
+cd ime/fcitx5-openatat
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+./build/openatat-filter-test    # no display
+sudo cmake --install build
+fcitx5 -r
+```
+
+If CMake reports `Fcitx5Core not found`, only the filter unit test is built. That is **not** a successful addon link — install `fcitx5` headers and re-run CMake. Full copy-paste path: `ime/fcitx5-openatat/README.md`.
+
+`Fcitx5Backend::start` in `openatatd` detects addon presence and logs a hint when Fcitx5 is running without the module. The daemon does not fail if Fcitx5 is absent.
+
+The filter module is intentionally IME-shaped so the Fcitx5 addon stays an adapter rather than a second detector.
 
 ### Swallowing `@@`
 
@@ -223,7 +242,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 
 ### P1 — Make `@@` real on Omarchy
 
-- Fcitx5 addon (and/or IBus) that implements the filter contract.
+- Fcitx5 addon (`ime/fcitx5-openatat`) that implements the filter contract. **Done for the trigger path.** Remaining P1 items below.
 - BYO CLI runner (template, scratch dir, no shell interpolation).
 - Preview refine (`R`).
 - `openatat-ui` Settings + history browser (gpui-ce), spawn/quit.
@@ -275,7 +294,7 @@ No crate found (documented, not invented):
 
 | Need | Reality |
 | --- | --- |
-| Fcitx5 addon in Rust | No shippable addon SDK crate. C++ addon in P1. |
+| Fcitx5 addon in Rust | No shippable addon SDK crate. C++ module: `ime/fcitx5-openatat`. |
 | IBus engine in Rust | No maintained engine crate we will depend on. |
 | Nautilus selection | No D-Bus API. |
 | gpui nonactivating panel | Does not exist. |
