@@ -12,7 +12,7 @@ It is not another workspace. There are no sessions to maintain. Call it up, get 
 
 ### What it is
 
-- A launcher for agents already on the machine. Bring your own CLI later (Claude Code, Codex, Grok, Cursor, Pi, Hermes, OpenCode, or any custom CLI). OpenAtat does not ship a bundled LLM. P0 runs `echo` or an `openatat-agent` shim.
+- A launcher for agents already on the machine. Bring your own CLI (Claude Code, Codex, Grok, Cursor, Pi, Hermes, OpenCode, or any custom CLI). OpenAtat does not ship a bundled LLM. If none of those binaries are on `PATH`, the applet falls back to `echo` and logs that no provider is installed.
 - A gatherer. A still of the active display is attached before the agent runs. Later phases add selection, clipboard, files, recordings, and annotation. The user sees attachments as removable tiles before send.
 - An inserter. Every answer lands in a **preview card** first. Nothing is typed into a document or copied without going through that card. `Tab` inserts when a text field is still focused; otherwise `Tab` copies. Insertion is clipboard-first, then a focus check, then AT-SPI (Linux) / AX (Mac) / UIA (Windows). If focus moved, insert aborts; the result is still on the clipboard.
 - Local. Prompts never go through our servers. History is one local file. No OpenAtat account.
@@ -32,7 +32,7 @@ It is not another workspace. There are no sessions to maintain. Call it up, get 
 - OpenAtat must not become the active application. The client keeps its “active app” identity.
 - Keyboard interactivity is **OnDemand, and only while the prompt / preview is up**. Idle has no mapped surface.
 - `Esc` cancels from any state.
-- Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) is P1. Handoff (`⌘Return` / Super+Return → real agent session) is P1.
+- Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) re-runs with the same attachments and replaces the preview. Handoff (`⌘Return` / Super+Return → real agent session) is later.
 
 ### Preview, insert, clipboard
 
@@ -46,7 +46,7 @@ A failed insert is still a copy.
 
 ### History
 
-Each stored entry is exactly four fields: `id`, `timestamp`, `entry` (entry point), `prompt`. Never store agent responses, screenshots, or attached context. Linux path: `~/.local/share/openatat`.
+Each stored entry is exactly four fields: `id`, `timestamp`, `entry` (entry point), `prompt`. Never store agent responses, screenshots, or attached context. A refine sentence is a new history row (or an updated prompt); still never the agent reply. Linux path: `~/.local/share/openatat`.
 
 ### Process split (locked)
 
@@ -71,8 +71,13 @@ Capture stays in the daemon. gpui `ScreenCaptureFrame` is a stub.
 
 ### Agents
 
-P0: dummy CLI (`echo` or `openatat-agent` if present / `OPENATAT_AGENT`).  
-Later: visible, editable command template; conservative read-only defaults in a scratch workspace; handoff launches the user’s own terminal or agent app. Prompts are passed as data, never spliced into a shell string.
+OpenAtat is a launcher, not a model host. Quick answers use a **visible argv template** (shown on the overlay; editable in `~/.config/openatat/agent.toml`).
+
+- **Providers (PATH lookup, product order):** `claude`, `codex`, `grok`, `cursor-agent`/`agent`, `pi`, `hermes`, `opencode`. Default is the first found. `provider = "dummy"` or a missing install uses `echo` and logs that no provider is installed.
+- **Prompt as data.** Templates are an argv list, never a shell line. The prompt is one argv element (`{prompt}`), stdin (no placeholder), or a temp file the template names (`{prompt_file}`). Quotes and newlines stay intact. `OPENATAT_AGENT` is an escape hatch: that binary, prompt on stdin.
+- **Scratch workspace.** Every run creates a directory under `~/.cache/openatat/scratch/`, sets cwd there, and filters the environment. Quick answers never use the user’s current folder (file-manager tiles are not implemented). Conservative flags are used only when the CLI documents them (`claude --print --permission-mode plan`, `codex exec --sandbox read-only`, `grok --sandbox read-only --prompt-file`, Cursor `--print --mode ask --trust`). Unverified flags are not invented.
+- **Launch failure.** Copy the prompt to the clipboard, then show the error. Never lose what they typed.
+- **Handoff** to the user’s own terminal or agent app is still later.
 
 ## 2. Capture inventory (C1–C19)
 
@@ -242,9 +247,9 @@ The addon (not the overlay) deletes the two characters from the client — typic
 
 ### P1 — Make `@@` real on Omarchy
 
-- Fcitx5 addon (`ime/fcitx5-openatat`) that implements the filter contract. **Done for the trigger path.** Remaining P1 items below.
-- BYO CLI runner (template, scratch dir, no shell interpolation).
-- Preview refine (`R`).
+- Fcitx5 addon (`ime/fcitx5-openatat`) that implements the filter contract. **Done for the trigger path.**
+- BYO CLI runner (template, scratch dir, no shell interpolation). **Done.** Provider pick is `~/.config/openatat/agent.toml` (no Settings UI yet).
+- Preview refine (`R`). **Done.**
 - `openatat-ui` Settings + history browser (gpui-ce), spawn/quit.
 - Selection bar start (C10) if AT-SPI selection is trustworthy.
 - Quickshell bar chip (not Waybar).
@@ -272,7 +277,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 9. **Clipboard after insert, or insert without clipboard.** Order is clipboard first.
 10. **Nautilus has no selection D-Bus API.** Do not scrape the view or guess URIs.
 11. **Waybar is gone on Omarchy 4.** Quickshell chip later; no Waybar module.
-12. **No bundled model.** Dummy `echo` in P0; BYO CLI later.
+12. **No bundled model.** BYO CLI on PATH; `echo` dummy only when nothing is installed. Never splice the prompt into a shell string.
 13. **Synthetic backspaces** into the client are a last resort and must be gated on the same focus address.
 14. **AT-SPI in browsers / Electron / games** is incomplete. Clipboard-first saves the result.
 15. **Recording, scrolling, OCR, Orb, shelf, studio** are out of P0. Stubs and comments only.

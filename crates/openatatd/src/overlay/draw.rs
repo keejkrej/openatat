@@ -18,6 +18,7 @@ pub enum Phase {
     Prompt,
     Running,
     Preview,
+    Refine,
 }
 
 #[derive(Debug, Clone)]
@@ -83,10 +84,33 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
                 width,
                 20,
                 72,
-                "Running dummy agent…",
+                "Running BYO CLI…",
                 COL_ACCENT,
                 1,
             );
+        }
+        Phase::Refine => {
+            text(
+                &mut buf,
+                width,
+                20,
+                52,
+                "Refine  one more sentence  Return re-runs",
+                COL_MUTED,
+                1,
+            );
+            fill_rect(
+                &mut buf,
+                width,
+                20,
+                72,
+                width.saturating_sub(40),
+                36,
+                COL_BG,
+            );
+            let shown = truncate(&frame.prompt, 48);
+            let caret = format!("{shown}_");
+            text(&mut buf, width, 26, 82, &caret, COL_TEXT, 1);
         }
         Phase::Preview => {
             text(
@@ -94,7 +118,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
                 width,
                 20,
                 52,
-                "Preview  Tab inserts/copies  Esc cancels",
+                "Preview  Tab inserts  R refine  Esc cancels",
                 COL_MUTED,
                 1,
             );

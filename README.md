@@ -35,7 +35,7 @@ One-shot demo (opens the native popover if `WAYLAND_DISPLAY` is set):
 cargo run -p openatatd -- --demo
 ```
 
-Type a prompt, `Return` runs the dummy CLI (`echo`), review the **preview card**, `Tab` copies then tries AT-SPI insert, `Esc` cancels. Click **remove** to drop the C1 still tile.
+Type a prompt, `Return` runs the BYO CLI (first provider on `PATH`, or `echo` if none), review the **preview card**, `Tab` copies then tries AT-SPI insert, `R` refines with one more sentence, `Esc` cancels. Click **remove** to drop the C1 still tile.
 
 Headless (CI / no compositor):
 
@@ -82,11 +82,49 @@ User-local install: `-DCMAKE_INSTALL_PREFIX=$HOME/.local` and skip `sudo`.
 If CMake warns that Fcitx5 headers are missing, the addon was **not** linked —
 see `ime/fcitx5-openatat/README.md`.
 
-Optional:
+## BYO CLI (P1)
+
+OpenAtat does not ship a model. It launches a CLI you already have. Default is the **first** of these binaries found on `PATH`:
+
+| Provider | Binary | Default argv (prompt is data, not a shell string) |
+| --- | --- | --- |
+| Claude Code | `claude` | `claude --print --permission-mode plan {prompt}` |
+| Codex | `codex` | `codex exec --sandbox read-only --ephemeral -` (prompt on stdin) |
+| Grok | `grok` | `grok --sandbox read-only --prompt-file {prompt_file}` |
+| Cursor | `cursor-agent` or `agent` | `… --print --mode ask --trust {prompt}` |
+| Pi | `pi` | `pi --print {prompt}` |
+| Hermes | `hermes` | `hermes -z {prompt}` |
+| OpenCode | `opencode` | `opencode run {prompt}` |
+
+If none are installed, `openatatd` logs that no provider is installed and runs `echo` (dummy). `{prompt}` is one argv element; `{prompt_file}` is a temp file OpenAtat writes. Quotes and newlines stay intact.
+
+Pick or override in `~/.config/openatat/agent.toml` (XDG):
+
+```toml
+# auto | claude | codex | grok | cursor | pi | hermes | opencode | custom | dummy
+provider = "auto"
+
+# Optional argv override (not a shell line):
+# argv = ["claude", "--print", "--permission-mode", "plan", "{prompt}"]
+```
+
+`OPENATAT_AGENT` remains an escape hatch: that binary is exec’d directly and the prompt is written to stdin (still not interpolated into a shell).
+
+Every run uses a **scratch workspace** under `~/.cache/openatat/scratch/<id>/`. cwd is set there. Quick answers never run in the folder you happened to have focused — file-manager tiles are not implemented, so it is always scratch. If launch fails, the prompt is copied to the clipboard before the error is shown.
+
+A machine with `claude` on `PATH`:
+
+```bash
+cargo run -p openatatd -- --headless --prompt='make this friendlier'
+```
+
+invokes `claude --print --permission-mode plan …` in that scratch cwd.
+
+Optional env:
 
 | Variable | Meaning |
 | --- | --- |
-| `OPENATAT_AGENT` | BYO CLI. Prompt is written to stdin (never spliced into a shell string). |
+| `OPENATAT_AGENT` | Escape-hatch binary. Prompt on stdin (never a shell string). |
 | `OPENATAT_PROMPT` | Headless / `--demo` default prompt. |
 | `OPENATAT_INSERT` | Headless path also runs clipboard + insert. |
 | `OPENATAT_DEMO` | Same as `--demo`. |
@@ -114,7 +152,7 @@ History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `e
 - `openatat-ui` Settings / studio / first-run (gpui-ce).
 - Orb, selection bar, clipboard shelf, Finder/Nautilus (Nautilus has **no** selection D-Bus API).
 - Recording, scrolling capture, OCR, annotation studio (C6–C19 except comments).
-- Real BYO agent templates / handoff.
+- Handoff to a terminal / Settings UI (provider pick is `agent.toml` on disk).
 
 C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented.
 
