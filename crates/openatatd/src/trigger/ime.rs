@@ -221,8 +221,9 @@ pub fn fcitx5_addon_conf_dirs() -> Vec<PathBuf> {
 pub fn fcitx5_addon_lib_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     if let Some(home) = std::env::var_os("HOME") {
-        dirs.push(PathBuf::from(home).join(".local/lib/fcitx5"));
-        dirs.push(PathBuf::from(home).join(".local/lib64/fcitx5"));
+        let home = PathBuf::from(home);
+        dirs.push(home.join(".local/lib/fcitx5"));
+        dirs.push(home.join(".local/lib64/fcitx5"));
     }
     dirs.push(PathBuf::from("/usr/lib/fcitx5"));
     dirs.push(PathBuf::from("/usr/lib64/fcitx5"));
