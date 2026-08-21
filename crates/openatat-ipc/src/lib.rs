@@ -1,5 +1,5 @@
 //! Shared protocol between `openatatd` (always-on applet) and `openatat-ui`
-//! (on-demand gpui-ce). Also used by the Fcitx5/IBus addon once it exists.
+//! (on-demand gpui-ce). Also used by `fcitx5-openatat` (and a future IBus adapter).
 //!
 //! Transport for P0 is a newline-delimited JSON unix socket. Nothing here
 //! talks to a network.

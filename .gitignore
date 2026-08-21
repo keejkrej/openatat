@@ -1,4 +1,5 @@
 /target
+ime/fcitx5-openatat/build
 **/*.rs.bk
 .idea
 .vscode

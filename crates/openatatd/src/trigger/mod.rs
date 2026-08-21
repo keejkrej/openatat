@@ -1,7 +1,8 @@
 //! IME-filter-shaped trigger. A global hotkey is not the product path.
 //!
-//! See SPEC.md §6. P0 ships the filter contract + tests, a no-op IME backend,
-//! and a dev-only Wayland/test socket (`demo`).
+//! See SPEC.md §6. The filter contract + tests live here. The product hook is
+//! the C++ Fcitx5 addon in `ime/fcitx5-openatat` (same `ImeFilter` rules),
+//! plus the dev-only Wayland/test socket (`demo`).
 
 mod ime;
 

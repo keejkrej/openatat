@@ -1,0 +1,12 @@
+[Addon]
+Name=OpenAtat
+Comment=Summon OpenAtat when @@ is committed in a text field
+Category=Module
+Version=@PROJECT_VERSION@
+Library=libopenatat
+Type=SharedLibrary
+OnDemand=False
+Configurable=False
+
+[Addon/Dependencies]
+0=core

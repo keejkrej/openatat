@@ -53,7 +53,34 @@ cargo run -p openatatd
 cargo run -p openatatd -- trigger
 ```
 
-The daemon listens on `$XDG_RUNTIME_DIR/openatat/trigger.sock`. The Fcitx5/IBus addon (P1) will send the same JSON. A Hyprland bind is not the product path — see SPEC.md §6.
+The daemon listens on `$XDG_RUNTIME_DIR/openatat/trigger.sock`. The Fcitx5 addon sends the same JSON (`source: ime`). A Hyprland bind is not the product path — see SPEC.md §6.
+
+## Product `@@` trigger (Fcitx5)
+
+This is the real path: type `@@` in any text field. Requires Fcitx5 and the
+`fcitx5-openatat` module. Copy-paste on Omarchy / Arch:
+
+```bash
+sudo pacman -S --needed fcitx5 fcitx5-gtk fcitx5-qt extra-cmake-modules cmake ninja pkgconf gcc
+
+cd ime/fcitx5-openatat
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cmake --build build
+./build/openatat-filter-test          # no display; no Fcitx5 session
+sudo cmake --install build            # only if CMake found Fcitx5Core
+fcitx5 -r
+```
+
+Then run `openatatd` and type `@@` in a text field. The two `@` characters are
+swallowed and the overlay opens. CJK preedit must not fire. Password fields are
+probed every key (never cached). If the daemon socket is missing, the addon
+fails quietly.
+
+Enable (usually already on): `fcitx5-configtool` → Addons → OpenAtat.
+
+User-local install: `-DCMAKE_INSTALL_PREFIX=$HOME/.local` and skip `sudo`.
+If CMake warns that Fcitx5 headers are missing, the addon was **not** linked —
+see `ime/fcitx5-openatat/README.md`.
 
 Optional:
 
@@ -74,14 +101,14 @@ Optional; deny one and the rest still works.
 - **hyprctl** — active output name + `activewindow` address (insert abort).
 - **wlr-data-control** or **wl-copy** — clipboard-first insert.
 - **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key.
-- **Fcitx5 or IBus addon** — product `@@` trigger (stub in P0).
+- **Fcitx5 addon (`fcitx5-openatat`)** — product `@@` trigger. See above.
 - **layer-shell** — the popover. Hyprland provides it.
 
 History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `entry`, `prompt` only). Prompts never go through our servers.
 
 ## What is stubbed in P0
 
-- Product IME backends (Fcitx5 / IBus): interface + tests + socket. No C++ addon yet.
+- IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
 - Mac overlay (`NSPanel` nonactivating), ScreenCaptureKit, AX insert.
 - Windows overlay (`WS_EX_NOACTIVATE`), WGC, UI Automation.
 - `openatat-ui` Settings / studio / first-run (gpui-ce).
@@ -97,6 +124,7 @@ C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented.
 crates/openatat-ipc     shared JSON protocol
 crates/openatatd        native applet
 crates/openatat-ui      gpui-ce placeholder
+ime/fcitx5-openatat     Fcitx5 module (product @@ trigger)
 ```
 
 Overlay crates: `wayland-client` + `smithay-client-toolkit` (layer-shell), `wl-clipboard-rs` (data-control), `zbus` (AT-SPI), `image` (downscale). No iced, gtk4-layer-shell, AGS, astal, or Waybar.
