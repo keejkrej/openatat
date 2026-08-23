@@ -25,12 +25,22 @@ use crate::paths::agent_config_path;
 /// # [custom]
 /// # bin = "my-agent"
 /// # argv = ["my-agent", "--ask", "{prompt}"]
+///
+/// # [handoff]
+/// # terminal = "kitty"   # or ghostty / alacritty / wezterm / foot / gnome-terminal / xterm
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AgentConfig {
     pub provider: Option<String>,
     pub argv: Option<Vec<String>>,
     pub custom: Option<CustomCli>,
+    pub handoff: Option<HandoffSection>,
+}
+
+/// Super+Return terminal pick. Omarchy auto-detect if omitted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct HandoffSection {
+    pub terminal: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -68,6 +78,14 @@ impl AgentConfig {
             }
         }
         Ok(None)
+    }
+
+    pub fn handoff_terminal(&self) -> Option<&str> {
+        self.handoff
+            .as_ref()
+            .and_then(|h| h.terminal.as_deref())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -117,5 +135,25 @@ argv = ["claude", "--print", "{prompt}"]
             ..Default::default()
         };
         assert_eq!(cfg.requested_kind(), None);
+    }
+
+    #[test]
+    fn parses_handoff_terminal() {
+        let dir = std::env::temp_dir().join(format!("openatat-cfg-h-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.toml");
+        std::fs::write(
+            &path,
+            r#"
+provider = "auto"
+
+[handoff]
+terminal = "kitty"
+"#,
+        )
+        .unwrap();
+        let cfg = load_from(&path).unwrap();
+        assert_eq!(cfg.handoff_terminal(), Some("kitty"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

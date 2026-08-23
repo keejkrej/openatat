@@ -10,7 +10,7 @@ Apache-2.0. No bundled LLM.
 
 | Process | Role |
 | --- | --- |
-| `openatatd` | Always-on native applet. Owns the `@@` overlay, C10 selection bar, trigger, insert, capture, and (later) Orb. Idle maps **no** surface and starts **no** GPU window. |
+| `openatatd` | Always-on native applet. Owns the `@@` overlay, C10 selection bar, trigger, insert, capture, terminal handoff, and (later) Orb. Idle maps **no** surface and starts **no** GPU window. |
 | `openatat-ui` | gpui-ce, **on demand**. Settings + history browser (studio / first-run later). Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
@@ -35,7 +35,7 @@ One-shot demo (opens the native popover if `WAYLAND_DISPLAY` is set):
 cargo run -p openatatd -- --demo
 ```
 
-Type a prompt, `Return` runs the BYO CLI (first provider on `PATH`, or `echo` if none), review the **preview card**, `Tab` copies then tries AT-SPI insert, `R` refines with one more sentence, `Esc` cancels. Click **remove** to drop the C1 still tile.
+Type a prompt, `Return` runs the BYO CLI (first provider on `PATH`, or `echo` if none), review the **preview card**, `Tab` copies then tries AT-SPI insert, `R` refines with one more sentence, `Super+Return` (or the **Handoff** button on the preview card) opens your terminal with an interactive agent session already loaded, `Esc` cancels. Click **remove** to drop the C1 still tile. After a successful handoff the overlay dismisses.
 
 Headless (CI / no compositor):
 
@@ -128,11 +128,32 @@ provider = "auto"
 
 # Optional argv override (not a shell line):
 # argv = ["claude", "--print", "--permission-mode", "plan", "{prompt}"]
+
+# [handoff]
+# terminal = "kitty"
 ```
 
 `OPENATAT_AGENT` remains an escape hatch: that binary is exec’d directly and the prompt is written to stdin (still not interpolated into a shell).
 
 Every run uses a **scratch workspace** under `~/.cache/openatat/scratch/<id>/`. cwd is set there. Quick answers never run in the folder you happened to have focused — file-manager tiles are not implemented, so it is always scratch. If launch fails, the prompt is copied to the clipboard before the error is shown.
+
+### Handoff (Super+Return)
+
+Some work should not end in a text snippet. `Super+Return` (Atat `⌘Return`) or the **Handoff** button on the preview card opens a real interactive session in your terminal with the gathered prompt (and still tile, if present) already loaded. OpenAtat then gets out of the way.
+
+- **cwd** is always a new scratch dir (`~/.cache/openatat/scratch/<id>/`). File-manager tiles are not implemented, so the window title is never used as a project folder.
+- **Terminal** is the first of these on `PATH`: `ghostty`, `kitty`, `alacritty`, `wezterm`, `foot`, `gnome-terminal`, `xterm`. Override in `~/.config/openatat/agent.toml`:
+
+```toml
+[handoff]
+terminal = "kitty"
+```
+
+Flags come from each emulator's docs (`ghostty --working-directory=DIR -e …`, `kitty --directory DIR`, `alacritty --working-directory DIR -e`, `wezterm start --cwd DIR --`, `foot -D DIR`, `gnome-terminal --working-directory=DIR --`, `xterm -e` with cwd set on the process). The prompt is never interpolated into `sh -c`. Hyprland `hyprctl dispatch exec` is a last resort and is refused if the prompt would appear in that command.
+- **Interactive CLI** (not `--print` / plan-mode / one-shot): `claude {prompt}`, `codex {prompt}`, `cursor-agent {prompt}`, `pi {prompt}`, `opencode --prompt {prompt}`. Grok and Hermes have no documented TUI-preload flag — the terminal opens in scratch on `grok` / `hermes` with `prompt.txt` already written. Dummy (`echo`) opens the terminal in scratch only.
+- If launch fails, the prompt is copied to the clipboard **before** the error is shown.
+
+Mac/Win handoff is a cfg-gated stub (`NSWorkspace` / `CreateProcessW`).
 
 A machine with `claude` on `PATH`:
 
@@ -198,9 +219,9 @@ History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `e
 - Orb, clipboard shelf, Finder/Nautilus (Nautilus has **no** selection D-Bus API — C10 is text selection, not files).
 - Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10).
 - Selection bar on Mac/Win (AXSelectedText / UIA TextPattern stubs only).
-- Handoff to a terminal.
+- Mac/Win terminal handoff (`NSWorkspace` / `CreateProcessW` stubs only).
 
-C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented. C10 (Linux mouse selection bar) is implemented in `openatatd`.
+C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented. C10 (Linux mouse selection bar) is implemented in `openatatd`. Terminal handoff (Super+Return) is implemented on Linux in `openatatd`.
 
 ## Crate layout
 

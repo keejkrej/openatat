@@ -68,6 +68,7 @@ pub enum SessionEnd {
     Inserted,
     CopiedOnly,
     AbortedFocusChanged,
+    HandedOff,
 }
 
 pub fn run_interactive(source: TriggerSource) -> Result<SessionEnd> {
@@ -75,6 +76,7 @@ pub fn run_interactive(source: TriggerSource) -> Result<SessionEnd> {
     match overlay::run(&mut session) {
         Ok(OverlayEnd::Cancelled) => Ok(SessionEnd::Cancelled),
         Ok(OverlayEnd::Copied) => Ok(SessionEnd::CopiedOnly),
+        Ok(OverlayEnd::Handoff) => Ok(SessionEnd::HandedOff),
         Ok(OverlayEnd::Tab) => finish_tab(&session),
         Err(e) if e.is_wayland_connect() => {
             eprintln!("openatatd: overlay unavailable ({e}); headless fallback");
@@ -89,6 +91,7 @@ pub fn run_selection_bar(sel: TextSelection, pointer: Option<(i32, i32)>) -> Res
     match overlay::run_bar(&mut session) {
         Ok(OverlayEnd::Cancelled) => Ok(SessionEnd::Cancelled),
         Ok(OverlayEnd::Copied) => Ok(SessionEnd::CopiedOnly),
+        Ok(OverlayEnd::Handoff) => Ok(SessionEnd::HandedOff),
         Ok(OverlayEnd::Tab) => finish_tab(&session),
         Err(e) if e.is_wayland_connect() => {
             eprintln!("openatatd: selection bar unavailable ({e})");

@@ -68,7 +68,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
                 width,
                 20,
                 52,
-                "Type a prompt  Return runs  Esc cancels",
+                "Type a prompt  Return runs  Super+Return handoff  Esc",
                 COL_MUTED,
                 1,
             );
@@ -117,7 +117,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
                 width,
                 20,
                 52,
-                "Preview  Tab inserts  R refine  Esc cancels",
+                "Preview  Tab inserts  R refine  Super+Return handoff",
                 COL_MUTED,
                 1,
             );
@@ -141,6 +141,8 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
                     1,
                 );
             }
+            fill_rect(&mut buf, width, HANDOFF_X, HANDOFF_Y, HANDOFF_W, HANDOFF_H, COL_ACCENT);
+            text(&mut buf, width, HANDOFF_X + 8, HANDOFF_Y + 6, "Handoff", COL_BG, 1);
         }
     }
 
@@ -231,8 +233,21 @@ pub fn hit_bar(x: f64, y: f64, width: u32) -> Option<BarHit> {
     None
 }
 
+pub const HANDOFF_X: u32 = 240;
+pub const HANDOFF_Y: u32 = 180;
+pub const HANDOFF_W: u32 = 86;
+pub const HANDOFF_H: u32 = 22;
+
 pub fn hit_remove(x: f64, y: f64, has_tile: bool) -> bool {
     has_tile && x >= 154.0 && x <= 224.0 && y >= 180.0 && y <= 202.0
+}
+
+pub fn hit_handoff(x: f64, y: f64, phase: Phase) -> bool {
+    phase == Phase::Preview
+        && x >= f64::from(HANDOFF_X)
+        && x <= f64::from(HANDOFF_X + HANDOFF_W)
+        && y >= f64::from(HANDOFF_Y)
+        && y <= f64::from(HANDOFF_Y + HANDOFF_H)
 }
 
 pub fn hit_close(x: f64, y: f64, width: u32) -> bool {
@@ -356,6 +371,13 @@ mod tests {
     fn remove_hit_only_with_tile() {
         assert!(!hit_remove(160.0, 190.0, false));
         assert!(hit_remove(160.0, 190.0, true));
+    }
+
+    #[test]
+    fn handoff_hit_only_on_preview() {
+        assert!(!hit_handoff(250.0, 190.0, Phase::Prompt));
+        assert!(hit_handoff(250.0, 190.0, Phase::Preview));
+        assert!(!hit_handoff(20.0, 190.0, Phase::Preview));
     }
 
     #[test]

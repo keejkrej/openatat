@@ -98,6 +98,7 @@ pub fn entry_label(rec: &HistoryRecord) -> &'static str {
         openatat_ipc::EntryPoint::Demo => "demo",
         openatat_ipc::EntryPoint::FileManager => "file-manager",
         openatat_ipc::EntryPoint::Orb => "orb",
+        openatat_ipc::EntryPoint::Handoff => "handoff",
     }
 }
 

@@ -10,7 +10,7 @@ mod providers;
 mod refine;
 mod template;
 
-pub use config::AgentConfig;
+pub use config::{AgentConfig, HandoffSection};
 pub use providers::{ProviderKind, REGISTRY};
 pub use refine::RefineSession;
 pub use template::{CommandTemplate, PromptPass, RenderedCommand};
@@ -23,7 +23,7 @@ use std::process::{Command, Stdio};
 use crate::error::{Error, Result};
 use crate::paths::cache_dir;
 
-use providers::{dummy_template, spec, template_for};
+use providers::{dummy_template, interactive_template_for, spec, template_for};
 use template::PROMPT_FILE;
 
 /// Screenshot (or later tiles) written into the scratch workspace.
@@ -169,6 +169,81 @@ pub fn resolve(ctx: &ResolveContext) -> Resolved {
     dummy_resolved_logged("no BYO provider on PATH")
 }
 
+/// Same provider pick as [`resolve`], but the argv is the interactive session
+/// (no `--print` / plan-mode / one-shot flags). Config `argv` overrides apply
+/// only to the quick-answer path — handoff does not reuse them.
+pub fn resolve_interactive(ctx: &ResolveContext) -> Resolved {
+    if let Some(bin) = ctx.openatat_agent.as_deref() {
+        eprintln!("openatatd: handoff OPENATAT_AGENT → `{bin}` (interactive, prompt in file)");
+        return Resolved {
+            kind: ProviderKind::Custom,
+            template: CommandTemplate::from_bin(bin),
+            dummy_fallback: false,
+        };
+    }
+
+    if let Some(kind) = ctx.config.requested_kind() {
+        if kind == ProviderKind::Dummy {
+            return dummy_resolved();
+        }
+        if kind == ProviderKind::Custom {
+            if let Ok(Some(template)) = ctx.config.argv_override() {
+                // Custom bin only — strip print-mode placeholders by keeping argv[0].
+                let bin = template.argv.first().cloned().unwrap_or_else(|| "echo".into());
+                return Resolved {
+                    kind,
+                    template: CommandTemplate::from_bin(&bin),
+                    dummy_fallback: false,
+                };
+            }
+            return dummy_resolved_logged("custom provider has no argv/bin in agent.toml");
+        }
+        if let Some(s) = spec(kind) {
+            if let Some(bin) = first_on_path(s.bins, ctx.path.as_deref()) {
+                if let Ok(template) = interactive_template_for(s, &bin) {
+                    return Resolved {
+                        kind,
+                        template,
+                        dummy_fallback: false,
+                    };
+                }
+            }
+            return dummy_resolved_logged(&format!(
+                "provider `{}` is set but none of {:?} are on PATH",
+                kind.as_str(),
+                s.bins
+            ));
+        }
+    }
+
+    for s in providers::REGISTRY {
+        if let Some(bin) = first_on_path(s.bins, ctx.path.as_deref()) {
+            if let Ok(template) = interactive_template_for(s, &bin) {
+                eprintln!(
+                    "openatatd: handoff provider `{}` (`{}`)",
+                    s.kind.as_str(),
+                    bin
+                );
+                return Resolved {
+                    kind: s.kind,
+                    template,
+                    dummy_fallback: false,
+                };
+            }
+        }
+    }
+
+    if let Some(bin) = which("openatat-agent", ctx.path.as_deref()) {
+        return Resolved {
+            kind: ProviderKind::Custom,
+            template: CommandTemplate::from_bin(&bin.to_string_lossy()),
+            dummy_fallback: false,
+        };
+    }
+
+    dummy_resolved_logged("no BYO provider on PATH")
+}
+
 fn dummy_resolved() -> Resolved {
     Resolved {
         kind: ProviderKind::Dummy,
@@ -216,7 +291,7 @@ fn run_launch_inner(launch: &Launch<'_>) -> Result<String> {
     spawn_rendered(&rendered, &prompt, &scratch)
 }
 
-fn write_attachments(prompt: &str, attachments: &[Attachment], scratch: &Path) -> Result<String> {
+pub(crate) fn write_attachments(prompt: &str, attachments: &[Attachment], scratch: &Path) -> Result<String> {
     let mut out = prompt.to_string();
     for att in attachments {
         match att {
@@ -288,7 +363,7 @@ fn spawn_rendered(rendered: &RenderedCommand, prompt: &str, scratch: &Path) -> R
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn filtered_env() -> Vec<(OsString, OsString)> {
+pub(crate) fn filtered_env() -> Vec<(OsString, OsString)> {
     const KEEP: &[&str] = &[
         "PATH",
         "HOME",

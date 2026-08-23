@@ -34,6 +34,7 @@ use super::{OverlayEnd, OverlayKind};
 use crate::a11y::TextSelection;
 use crate::agent::{self, Attachment, Launch, RefineSession};
 use crate::error::{Error, Result};
+use crate::handoff::{self, Handoff};
 use crate::history;
 use crate::selection::{self, PromptAction};
 use crate::session::Session;
@@ -112,6 +113,7 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         end: None,
         dirty: true,
         entry: session.entry,
+        mods: Modifiers::default(),
     };
 
     while overlay.end.is_none() {
@@ -156,6 +158,7 @@ struct Overlay {
     entry: EntryPoint,
     selection: Option<TextSelection>,
     prompt_action: Option<PromptAction>,
+    mods: Modifiers,
 }
 
 impl Overlay {
@@ -170,7 +173,7 @@ impl Overlay {
                 }
             }
             Phase::Running => "scratch cwd · prompt passed as data",
-            Phase::Preview => "result is not in your document until Tab",
+            Phase::Preview => "result is not in your document until Tab · Super+Return handoff",
             Phase::Refine => "same attachments · new result replaces the old",
         };
         let prompt = if self.phase == Phase::Refine {
@@ -249,6 +252,13 @@ impl Overlay {
                 return;
             }
             Keysym::Return | Keysym::KP_Enter => {
+                if self.mods.logo {
+                    // Super+Return / ⌘Return. Does not change OnDemand focus.
+                    if self.phase != Phase::Bar && self.phase != Phase::Running {
+                        self.run_handoff(qh);
+                    }
+                    return;
+                }
                 if self.phase == Phase::Prompt {
                     self.run_agent(qh, false);
                 } else if self.phase == Phase::Refine {
@@ -410,9 +420,73 @@ impl Overlay {
         } else {
             Vec::new()
         };
-        match agent::run_launch(&Launch {
+        self.launch_agent(qh, &launch_prompt, &attachments);
+    }
+
+    fn run_handoff(&mut self, qh: &QueueHandle<Self>) {
+        if self.phase == Phase::Refine && self.refine.is_empty() && self.refine_session.is_none() {
+            return;
+        }
+        if self.prompt.is_empty() {
+            self.prompt = "hello from openatat".to_string();
+        }
+        if self.refine_session.is_none() {
+            self.refine_session = Some(RefineSession::new(self.prompt.clone()));
+        }
+        let Some(sess) = self.refine_session.as_mut() else {
+            return;
+        };
+        if self.phase == Phase::Refine && !self.refine.is_empty() {
+            sess.apply_refine(self.refine.clone());
+        }
+        let history_prompt = if let Some(action) = self.prompt_action {
+            selection::history_prompt_for(action, sess.history_prompt())
+        } else {
+            sess.history_prompt().to_string()
+        };
+        let mut launch_prompt = sess.launch_prompt();
+        if let Some(sel) = self.held_selection() {
+            launch_prompt = format!("{launch_prompt}\n\nSelected text:\n{}", sel.text());
+        }
+        let _ = history::append_prompt(EntryPoint::Handoff, &history_prompt);
+        let attachments = if self.has_tile {
+            self.still_png
+                .as_ref()
+                .map(|png| Attachment::Still { png: png.clone() })
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        match handoff::run(&Handoff {
             prompt: &launch_prompt,
             attachments: &attachments,
+            resolve: None,
+            copy_text: crate::clipboard::copy_text,
+            spawn: None,
+        }) {
+            Ok(_) => {
+                self.end = Some(OverlayEnd::Handoff);
+            }
+            Err(e) => {
+                self.preview = format!("handoff error: {e}");
+                self.phase = Phase::Preview;
+                self.grow_to_popover();
+                self.dirty = true;
+                self.draw(qh);
+            }
+        }
+    }
+
+    fn launch_agent(
+        &mut self,
+        qh: &QueueHandle<Self>,
+        launch_prompt: &str,
+        attachments: &[Attachment],
+    ) {
+        match agent::run_launch(&Launch {
+            prompt: launch_prompt,
+            attachments,
             resolve: None,
             copy_text: crate::clipboard::copy_text,
         }) {
@@ -620,10 +694,11 @@ impl KeyboardHandler for Overlay {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: Modifiers,
+        modifiers: Modifiers,
         _: RawModifiers,
         _: u32,
     ) {
+        self.mods = modifiers;
     }
 }
 
@@ -653,6 +728,8 @@ impl PointerHandler for Overlay {
                 }
                 if draw::hit_close(x, y, self.width) {
                     self.end = Some(OverlayEnd::Cancelled);
+                } else if draw::hit_handoff(x, y, self.phase) {
+                    self.run_handoff(qh);
                 } else if draw::hit_remove(x, y, self.has_tile) {
                     self.has_tile = false;
                     self.thumb = None;

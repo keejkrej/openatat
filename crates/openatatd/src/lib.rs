@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod daemon;
 pub mod error;
 pub mod focus;
+pub mod handoff;
 pub mod history;
 pub mod insert;
 pub mod overlay;
