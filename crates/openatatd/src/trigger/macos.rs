@@ -200,6 +200,30 @@ unsafe extern "C" fn tap_callback(
         daemon::summon_shelf();
         return event;
     }
+    // ⌘⇧3 / ⌘⇧4 — listen-only, only because this tap already exists
+    // (Input Monitoring granted). Do not swallow OS screenshot keys.
+    let capture_key = match keycode {
+        20 => Some('3'), // kVK_ANSI_3
+        21 => Some('4'), // kVK_ANSI_4
+        _ => None,
+    };
+    if let Some(key) = capture_key {
+        if let Some(kind) = crate::capture::policy::capture_kind_for_key(key) {
+            if crate::capture::policy::is_capture_shortcut(
+                crate::capture::policy::CaptureOs::Mac,
+                kind,
+                cmd,
+                shift,
+                ctrl,
+                alt,
+                false,
+                key,
+            ) {
+                daemon::summon_capture(kind);
+                return event;
+            }
+        }
+    }
     // Listen-only: we never modify or swallow the CGEvent. @@ is removed via AX.
     let secure_event_input = ffi::IsSecureEventInputEnabled() != 0;
     let ax_secure = a11y::probe_field_kind() == crate::trigger::FieldKind::Secure;

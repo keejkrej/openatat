@@ -44,18 +44,39 @@ use crate::error::Result;
 
 pub fn capture_active_output() -> Result<Still> {
     crate::windows_runtime::ensure_com();
+    downscale_long_edge(&capture_monitor_png()?, LONG_EDGE)
+}
+
+pub fn capture_region(region: &super::picker::PickedRegion) -> Result<Still> {
+    crate::windows_runtime::ensure_com();
+    let png = capture_monitor_png()?;
+    let img = image::load_from_memory(&png)?;
+    let mapped = super::policy::map_surface_rect_to_image(
+        region.x,
+        region.y,
+        region.width,
+        region.height,
+        region.surface_w.max(1),
+        region.surface_h.max(1),
+        img.width(),
+        img.height(),
+    )
+    .ok_or_else(|| crate::error::Error::msg("C2 crop is empty"))?;
+    super::crop_png(&png, mapped.0, mapped.1, mapped.2, mapped.3)
+}
+
+fn capture_monitor_png() -> Result<Vec<u8>> {
     match capture_wgc() {
-        Ok(png) => downscale_long_edge(&png, LONG_EDGE),
+        Ok(png) => Ok(png),
         Err(wgc) => {
             eprintln!("openatatd: WGC C1 failed ({wgc}); trying DXGI Desktop Duplication");
-            match capture_dxgi() {
-                Ok(png) => downscale_long_edge(&png, LONG_EDGE),
-                Err(dxgi) => Err(crate::error::Error::msg(format!(
+            capture_dxgi().map_err(|dxgi| {
+                crate::error::Error::msg(format!(
                     "Windows capture failed. WGC needs privacy consent \
                      (Settings → Privacy & security → Screenshots and apps / graphics capture). \
                      WGC: {wgc}; DXGI: {dxgi}"
-                ))),
-            }
+                ))
+            })
         }
     }
 }

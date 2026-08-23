@@ -104,6 +104,20 @@ pub enum DaemonRequest {
     ShowOrb,
     /// Open the C14 clipboard shelf. Not a `@@` summon.
     Shelf,
+    /// C2 area or C4 display still. Not a `@@` summon and not a global hotkey.
+    Capture {
+        kind: CaptureKind,
+    },
+}
+
+/// Explicit still. C2 is an interactive region; C4 is one output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureKind {
+    /// Atat `⌘⇧4`: rubber-band a rectangle, then one still of that region.
+    Area,
+    /// Atat `⌘⇧3`: one still of the output under the pointer / focused window.
+    Display,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,6 +292,22 @@ mod tests {
         let line = DaemonRequest::Shelf.encode().unwrap();
         assert_eq!(DaemonRequest::decode(&line).unwrap(), DaemonRequest::Shelf);
         assert_eq!(line, r#"{"cmd":"shelf"}"#);
+    }
+
+    #[test]
+    fn capture_request_roundtrip() {
+        let area = DaemonRequest::Capture {
+            kind: CaptureKind::Area,
+        };
+        let line = area.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), area);
+        assert_eq!(line, r#"{"cmd":"capture","kind":"area"}"#);
+        let display = DaemonRequest::Capture {
+            kind: CaptureKind::Display,
+        };
+        let line = display.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), display);
+        assert_eq!(line, r#"{"cmd":"capture","kind":"display"}"#);
     }
 
     #[test]

@@ -45,6 +45,16 @@ pub struct OutputGeom {
     pub y: i32,
     pub width: u32,
     pub height: u32,
+    pub focused: bool,
+}
+
+impl OutputGeom {
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        x >= self.x
+            && y >= self.y
+            && x < self.x + self.width as i32
+            && y < self.y + self.height as i32
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -80,23 +90,55 @@ pub fn active_output() -> Option<String> {
 }
 
 pub fn focused_output() -> Option<OutputGeom> {
-    let out = Command::new("hyprctl")
-        .args(["monitors", "-j"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
+    let outputs = all_outputs();
+    outputs
+        .iter()
+        .find(|o| o.focused)
+        .cloned()
+        .or_else(|| outputs.into_iter().next())
+}
+
+/// Output under the pointer, else the focused / first output.
+pub fn output_under_pointer() -> Option<OutputGeom> {
+    let outputs = all_outputs();
+    if let Some((x, y)) = cursor_pos() {
+        if let Some(hit) = outputs.iter().find(|o| o.contains(x, y)).cloned() {
+            return Some(hit);
+        }
     }
-    let monitors: Vec<HyprMonitor> = serde_json::from_slice(&out.stdout).ok()?;
-    monitors.into_iter().find(|m| m.focused).and_then(|m| {
-        Some(OutputGeom {
-            name: m.name?,
-            x: m.x,
-            y: m.y,
-            width: m.width,
-            height: m.height,
-        })
-    })
+    outputs
+        .iter()
+        .find(|o| o.focused)
+        .cloned()
+        .or_else(|| outputs.into_iter().next())
+}
+
+pub fn all_outputs() -> Vec<OutputGeom> {
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let out = match Command::new("hyprctl").args(["monitors", "-j"]).output() {
+            Ok(o) if o.status.success() => o,
+            _ => return Vec::new(),
+        };
+        let monitors: Vec<HyprMonitor> = serde_json::from_slice(&out.stdout).unwrap_or_default();
+        return monitors
+            .into_iter()
+            .filter_map(|m| {
+                Some(OutputGeom {
+                    name: m.name?,
+                    x: m.x,
+                    y: m.y,
+                    width: m.width,
+                    height: m.height,
+                    focused: m.focused,
+                })
+            })
+            .collect();
+    }
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        Vec::new()
+    }
 }
 
 /// Pointer in screen coordinates. Fallback when a11y extents are missing.

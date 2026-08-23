@@ -7,7 +7,7 @@ use std::net::{TcpListener, TcpStream};
 #[cfg(unix)]
 use std::os::unix::net::{UnixListener, UnixStream};
 
-use openatat_ipc::{DaemonReply, DaemonRequest, TriggerSource};
+use openatat_ipc::{CaptureKind, DaemonReply, DaemonRequest, TriggerSource};
 
 use crate::a11y;
 use crate::error::{Error, Result};
@@ -52,6 +52,18 @@ pub fn summon_shelf() {
         return;
     }
     match crate::shelf::run_shelf() {
+        Ok(_) => set_last_error(None),
+        Err(e) => set_last_error(Some(e.to_string())),
+    }
+    leave();
+}
+
+/// C2 / C4 explicit still. Not a `@@` summon. Same session lock as the overlay.
+pub fn summon_capture(kind: CaptureKind) {
+    if !try_enter() {
+        return;
+    }
+    match crate::capture::run_capture(kind) {
         Ok(_) => set_last_error(None),
         Err(e) => set_last_error(Some(e.to_string())),
     }
@@ -307,6 +319,16 @@ fn parse_request(line: &str) -> Result<DaemonRequest> {
     if line == "shelf" {
         return Ok(DaemonRequest::Shelf);
     }
+    if line == "capture-area" {
+        return Ok(DaemonRequest::Capture {
+            kind: CaptureKind::Area,
+        });
+    }
+    if line == "capture-display" {
+        return Ok(DaemonRequest::Capture {
+            kind: CaptureKind::Display,
+        });
+    }
     DaemonRequest::decode(line).map_err(Error::from)
 }
 
@@ -352,6 +374,24 @@ fn dispatch(req: DaemonRequest) -> DaemonReply {
         DaemonRequest::ShowOrb => {
             crate::orb::show();
             DaemonReply::Ok
+        }
+        DaemonRequest::Capture { kind } => {
+            if !try_enter() {
+                return DaemonReply::Busy;
+            }
+            let reply = match crate::capture::run_capture(kind) {
+                Ok(_) => {
+                    set_last_error(None);
+                    DaemonReply::Ok
+                }
+                Err(e) => {
+                    let message = e.to_string();
+                    set_last_error(Some(message.clone()));
+                    DaemonReply::Error { message }
+                }
+            };
+            leave();
+            reply
         }
         DaemonRequest::Shelf => {
             if !try_enter() {
@@ -521,6 +561,10 @@ pub fn send_shelf() -> Result<()> {
     send_line(&DaemonRequest::Shelf)
 }
 
+pub fn send_capture(kind: CaptureKind) -> Result<()> {
+    send_line(&DaemonRequest::Capture { kind })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,6 +600,24 @@ mod tests {
         assert_eq!(
             parse_request(r#"{"cmd":"shelf"}"#).unwrap(),
             DaemonRequest::Shelf
+        );
+        assert_eq!(
+            parse_request(r#"{"cmd":"capture","kind":"area"}"#).unwrap(),
+            DaemonRequest::Capture {
+                kind: CaptureKind::Area
+            }
+        );
+        assert_eq!(
+            parse_request(r#"{"cmd":"capture","kind":"display"}"#).unwrap(),
+            DaemonRequest::Capture {
+                kind: CaptureKind::Display
+            }
+        );
+        assert_eq!(
+            parse_request("capture-area\n").unwrap(),
+            DaemonRequest::Capture {
+                kind: CaptureKind::Area
+            }
         );
         assert_eq!(
             parse_request(r#"{"cmd":"hide-orb"}"#).unwrap(),

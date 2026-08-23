@@ -143,6 +143,33 @@ shelf = false
 
 Default is **on**. Settings has the same switch. Overlay / Orb / studio are unchanged.
 
+### Area and display stills (C2 / C4)
+
+Atat `⌘⇧4` (area) and `⌘⇧3` (display). A successful still opens the existing `@@` overlay with **that tile only** — no second auto C1. Esc on the picker cancels without opening `@@`. Typed `@@` still auto-attaches C1. Nothing is uploaded.
+
+The picker is a native nonactivating surface in `openatatd` (layer-shell Overlay, dimmed rubber-band, `KeyboardInteractivity::OnDemand` only while picking). It is not gpui, not slurp, not an xdg-desktop-portal Screenshot chooser. After a rect is chosen, grim crops that geometry (or the full output, then a CPU crop). `slurp` is a documented fallback only if the native picker cannot map, like `--demo` for trigger.
+
+This is a **capture shortcut**, not a `@@` summon. The daemon does **not** install a Hyprland bind and does not steal OS screenshot keys behind your back.
+
+```bash
+# terminal A: openatatd
+# terminal B
+cargo run -p openatatd -- --capture area
+cargo run -p openatatd -- --capture display
+# or IPC: {"cmd":"capture","kind":"area"}
+#         {"cmd":"capture","kind":"display"}
+```
+
+Omarchy / Hyprland — add this yourself (the applet will not write it):
+
+```ini
+# ~/.config/hypr/hyprland.conf
+bind = SUPER SHIFT, 4, exec, openatatd --capture area
+bind = SUPER SHIFT, 3, exec, openatatd --capture display
+```
+
+macOS: `⌘⇧3` / `⌘⇧4` if Input Monitoring is already granted, else `--capture`. Windows: `Win+Shift+3/4` on the process-local hook, else `--capture`.
+
 ## Product `@@` trigger (Fcitx5)
 
 This is the real path: type `@@` in any text field. Requires Fcitx5 and the
@@ -370,7 +397,7 @@ This cloud / Linux agent **cannot** `cargo build --target x86_64-pc-windows-msvc
 
 Optional; deny one and the rest still works.
 
-- **grim** — C1 auto-still of the focused Hyprland output. Silent. Do not route auto-attach through the xdg-desktop-portal screenshot picker.
+- **grim** — C1 auto-still of the focused Hyprland output, plus C2/C4 stills after the native picker. Silent. Do not route auto-attach through the xdg-desktop-portal screenshot picker.
 - **hyprctl** — active output name + `activewindow` address (insert abort).
 - **wlr-data-control** or **wl-copy** — clipboard-first insert and C14 shelf watch.
 - **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key; C10 selection (`GetText` + selection offsets).
@@ -384,7 +411,7 @@ Optional TCC grants. Deny one and the rest still works. First-run can finish wit
 
 - **Input Monitoring** — listen-only `@@` event tap. System Settings → Privacy & Security → Input Monitoring → openatatd. Missing: log a grant hint; `--demo` / `trigger.sock` stay up.
 - **Accessibility** — AX insert, @@ swallow, C10 `AXSelectedText`, `AXSecureTextField` probe every key. System Settings → Privacy & Security → Accessibility.
-- **Screen Recording** — C1 via `SCScreenshotManager` + display `SCContentFilter` (OpenAtat windows excluded). Denied: skip the tile. Not `CGWindowListCreateImage`.
+- **Screen Recording** — C1 / C2 / C4 via `SCScreenshotManager` + display `SCContentFilter` (OpenAtat windows excluded). Denied: skip the tile. Not `CGWindowListCreateImage`. C2 rubber-band is a nonactivating `NSPanel`.
 - **Finder Automation** — insertion location + selection as real POSIX paths (cwd tile + file tiles). Denied: do **not** guess from the title bar. Right-click Service waits.
 
 ## Permissions (Windows)
@@ -392,7 +419,7 @@ Optional TCC grants. Deny one and the rest still works. First-run can finish wit
 Optional. Deny one and the rest still works.
 
 - **UI Automation** — insert, @@ swallow, C10 `TextPattern`, `IsPassword` / `ES_PASSWORD` every key. Password fields are never read.
-- **Graphics Capture** — C1 via WGC `CreateForMonitor`. Settings → Privacy & security → Screenshots and apps. Denied: skip the tile. Not `GraphicsCapturePicker`.
+- **Graphics Capture** — C1 / C2 / C4 via WGC `CreateForMonitor`. Settings → Privacy & security → Screenshots and apps. Denied: skip the tile. Not `GraphicsCapturePicker`. C2 rubber-band is `WS_EX_NOACTIVATE` with `WDA_EXCLUDEFROMCAPTURE`.
 - **Explorer shell** — cwd + selected PIDLs via `IShellWindows` → `IFolderView` when Explorer is frontmost. Title bar is never parsed. Context-menu DLL waits.
 
 History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, `timestamp`, `entry`, `prompt` only). Windows: `%LOCALAPPDATA%\openatat\history.jsonl`. The C14 shelf is a separate file (`clipboard-shelf.json`). Prompts never go through our servers.
@@ -402,11 +429,11 @@ History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
 - `openatat-ui` first-run tutorial (Settings + history + C17 studio are implemented).
 - Nautilus (no selection D-Bus API).
-- Recording, scrolling capture, OCR, C13 current-clipboard-as-tile, video studio / trim (C18). C14 clipboard shelf and C17 still annotation are live.
+- Recording, scrolling capture, OCR, C13 current-clipboard-as-tile, video studio / trim (C18). C2 area, C4 display, C14 clipboard shelf, and C17 still annotation are live.
 - Right-click Finder Service / Explorer context-menu DLL.
 - Windows tray icon (socket + right-click hide the Orb is enough for v1).
 
-C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). Typed `@@` still auto-attaches C1; **Orb click does not**. C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. C16 (drag-drop onto the Orb) is live on Wayland / macOS / Win32 drop targets — file-manager titles are never scraped. Terminal handoff is implemented on Linux, macOS, and Windows. The Orb is a native layer-shell / NSPanel / `WS_EX_NOACTIVATE` surface in `openatatd`, not gpui and not the Quickshell chip. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). Typed `@@` still auto-attaches C1; **Orb click does not**. C2 (`--capture area`) rubber-bands a native nonactivating picker and opens `@@` with that still only. C4 (`--capture display`) is one output still, same overlay, no second C1. C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. C16 (drag-drop onto the Orb) is live on Wayland / macOS / Win32 drop targets — file-manager titles are never scraped. Terminal handoff is implemented on Linux, macOS, and Windows. The Orb is a native layer-shell / NSPanel / `WS_EX_NOACTIVATE` surface in `openatatd`, not gpui and not the Quickshell chip. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
 
 ## Crate layout
 

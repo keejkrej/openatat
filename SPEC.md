@@ -93,9 +93,9 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | ID | Capture | P0 | Notes |
 | --- | --- | --- | --- |
 | C1 | Auto-still of the **active output** when `@@` fires | **Yes** | Silent. grim on Linux. No portal picker on the auto-attach path. Downscale long-edge ~1600–1920. Removable tile. |
-| C2 | Area screenshot | No | Atat `⌘⇧4`. Interactive region. |
-| C3 | Window screenshot | No | Atat window target. |
-| C4 | Full-display / explicit display still | No | Atat `⌘⇧3`. C1 is the auto path. |
+| C2 | Area screenshot | **P2** | Atat `⌘⇧4`. Native nonactivating rubber-band in `openatatd`. |
+| C3 | Window screenshot | No | Atat window target. Cheap `hyprctl activewindow` geometry is ok later. |
+| C4 | Full-display / explicit display still | **P2** | Atat `⌘⇧3`. One output still. Distinct from auto C1 on typed `@@`. |
 | C5 | All-in-one picker | No | Atat `⌘⇧5`: shot / window / scroll / OCR / record / Ask. |
 | C6 | Scrolling capture | No | Stub / comment only. |
 | C7 | Video recording | No | Stub / comment only. |
@@ -112,7 +112,7 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C18 | Video trim / export | No | Studio. |
 | C19 | Recording keyboard bezel | No | KeyCastr-style overlay during record. |
 
-C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C14 is live: clipboard watch + native shelf in `openatatd`. C16 is live: drag-drop onto the Orb (Wayland / Cocoa / Win32; never a title-bar scrape). C17 annotation is live in `openatat-ui` (local PNG/JPEG, no upload). C13 current-clipboard-as-tile can wait. C18 video studio is later. Leftover capture work is scrolling / OCR / recording. C6–C19 stay in this inventory so later work does not invent a second taxonomy.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C2 is a native nonactivating region picker in `openatatd` (layer-shell Overlay / NSPanel / `WS_EX_NOACTIVATE`); the still is cropped from grim geometry / SCK display filter / WGC monitor + CPU crop. Portal Screenshot choosers, `GraphicsCapturePicker`, and `slurp`/`grim -g` are not the product picker (`slurp` is a documented fallback if the native picker cannot map). C4 is one still of the output under the pointer / focused window and opens `@@` with that tile only (no second auto C1). C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C14 is live: clipboard watch + native shelf in `openatatd`. C16 is live: drag-drop onto the Orb (Wayland / Cocoa / Win32; never a title-bar scrape). C17 annotation is live in `openatat-ui` (local PNG/JPEG, no upload). C13 current-clipboard-as-tile can wait. C18 video studio is later. Leftover capture work is **scrolling / OCR / recording**. C6–C19 stay in this inventory so later work does not invent a second taxonomy.
 
 ## 3. OS API matrix
 
@@ -123,7 +123,7 @@ C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Wind
 | Trigger (product) | Fcitx5 module `fcitx5-openatat`; committed text only | Listen-only CGEvent tap + `ImeFilter`. `IsSecureEventInputEnabled` / `AXSecureTextField` every key. IME composing ignored. `@@` swallowed via AX replace | Process-local `WH_KEYBOARD_LL` (Raw Input fallback) + `ImeFilter`. UIA `IsPassword` / `ES_PASSWORD` every key. IME composition ignored. `@@` swallowed via UIA replace or one paste. Not a raw hotkey. |
 | Trigger (demo) | Unix socket + `--demo` / `--once`. Not a product hotkey | Same socket + `--demo` if Input Monitoring is missing | TCP `127.0.0.1` + `--demo` if the hook cannot install |
 | Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 `ES_PASSWORD` every key |
-| Screen still | **grim** (`-o` active output). No xdg-desktop-portal picker on auto-attach | ScreenCaptureKit | WGC `CreateForMonitor` (monitor of the foreground window). Not `GraphicsCapturePicker`. DXGI Desktop Duplication fallback. Overlay HWND excluded. |
+| Screen still | **grim** (`-o` active output; C2 crops grim geometry after a native layer-shell picker). No xdg-desktop-portal picker on auto-attach. `slurp` is fallback only if the native picker cannot map. | ScreenCaptureKit (`SCScreenshotManager` + display filter; C2 CPU-crops). OpenAtat windows excluded. | WGC `CreateForMonitor` (monitor of the foreground window). Not `GraphicsCapturePicker`. DXGI Desktop Duplication fallback. Overlay / picker HWND excluded (`WDA_EXCLUDEFROMCAPTURE`). C2 CPU-crops. |
 | Downscale | CPU, long-edge 1600–1920 | Same policy | Same policy |
 | Insert | AT-SPI `EditableText.InsertText` (replace uses `DeleteText` then insert; no synthetic backspaces) | `AXUIElement` | Clipboard-first, then `GetForegroundWindow` + UIA RuntimeId, then ValuePattern / TextPattern or one Ctrl+V. Browsers paste. |
 | Selection bar (C10) | AT-SPI `GetNSelections` / `GetSelection` / `GetText` / `GetRangeExtents`; `RegisterEvent("mouse:b1r")`. Skip if no selection. | `NSEvent` left-mouse-up + `AXSelectedText`. Keyboard selections do not summon. | Mouse-up + UIA TextPattern. Keyboard selections do not summon. |
@@ -168,7 +168,7 @@ Every permission is optional. Deny one and the rest of the app keeps working; th
 | `wlr-data-control` or `wl-copy` | Clipboard-first insert | Hyprland supports data-control |
 | AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe + C10 selection | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
 | Fcitx5 (`fcitx5-openatat`) | Product `@@` trigger | C++ module; see IME plan |
-| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger + bar-chip status / Settings / Show Orb / C14 shelf | `fcitx5-openatat`, `openatatd trigger`, `{"cmd":"status"}`, `{"cmd":"open-ui"}`, `{"cmd":"hide-orb"}`, `{"cmd":"show-orb"}`, `{"cmd":"shelf"}` |
+| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger + bar-chip status / Settings / Show Orb / C14 shelf / C2–C4 capture | `fcitx5-openatat`, `openatatd trigger`, `{"cmd":"status"}`, `{"cmd":"open-ui"}`, `{"cmd":"hide-orb"}`, `{"cmd":"show-orb"}`, `{"cmd":"shelf"}`, `{"cmd":"capture","kind":"area"|"display"}` |
 | `$XDG_RUNTIME_DIR/openatat/status.json` | Omarchy Quickshell bar chip (`openatat.chip`) | Written by `openatatd` on idle / busy / error. No extra GPU surface. |
 
 The product path needs `fcitx5-openatat` installed and Fcitx5 running. `--demo` / `openatatd trigger` stay available without the addon.
@@ -291,7 +291,8 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - Windows `WS_EX_NOACTIVATE` + WGC + UIA. **Done for the overlay / trigger / C1 / insert / C10 / Explorer / handoff path.**
 - Orb (no summon hotkey). **Done.** Click opens an empty prompt (no C1). C16 drop is live. Hide is this-launch only via socket / right-click (Mac: NSStatusItem).
 - Studio / annotation in `openatat-ui`. **Done.** `openatat-ui --features gpui -- --studio --image <png>`. Overlay Edit only spawns that binary. Video studio (C18) is later.
-- Clipboard history shelf (C14). **Done.** Native layer-shell / NSPanel / `WS_EX_NOACTIVATE` in `openatatd`. Watch is CPU-only. `clipboard.shelf = false` stops recording. C13 current-clipboard-as-tile can wait. Leftover: scrolling / OCR / recording.
+- Clipboard history shelf (C14). **Done.** Native layer-shell / NSPanel / `WS_EX_NOACTIVATE` in `openatatd`. Watch is CPU-only. `clipboard.shelf = false` stops recording. C13 current-clipboard-as-tile can wait.
+- Area (C2) and explicit display (C4) stills. **Done.** Native picker + `openatatd --capture area|display` / IPC. No second auto C1. Leftover: scrolling / OCR / recording.
 - Nautilus: do not invent a D-Bus API; document a user-driven tile or a future GNOME extension.
 
 ## 8. Landmines
@@ -310,7 +311,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 12. **No bundled model.** BYO CLI on PATH; `echo` dummy only when nothing is installed. Never splice the prompt into a shell string.
 13. **Synthetic backspaces** into the client are a last resort and must be gated on the same focus address.
 14. **AT-SPI in browsers / Electron / games** is incomplete. Clipboard-first saves the result.
-15. **Scrolling, OCR, recording, C13 clipboard-as-tile, video studio (C18)** are out of P0. Stubs and comments only. The Orb, C14 shelf, and C17 still annotation are implemented.
+15. **Scrolling, OCR, recording, C13 clipboard-as-tile, video studio (C18)** are out of P0. Stubs and comments only. The Orb, C2/C4 stills, C14 shelf, and C17 still annotation are implemented.
 
 ## 9. Crate choices (P0)
 

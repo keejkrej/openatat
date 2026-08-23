@@ -12,8 +12,8 @@ pub struct PermissionGrant {
 pub const LINUX_GRANTS: &[PermissionGrant] = &[
     PermissionGrant {
         name: "grim",
-        unlocks: "C1 auto-still of the focused Hyprland output (silent).",
-        how: "grim must be allowed to capture outputs. Do not route auto-attach through the xdg-desktop-portal screenshot picker.",
+        unlocks: "C1 auto-still of the focused Hyprland output (silent), plus C2/C4 stills after the native picker.",
+        how: "grim must be allowed to capture outputs. Do not route auto-attach through the xdg-desktop-portal screenshot picker. C2 uses grim geometry after the native rubber-band; slurp is only a fallback if that picker cannot map.",
     },
     PermissionGrant {
         name: "hyprctl",
@@ -51,7 +51,7 @@ pub const MAC_GRANTS: &[PermissionGrant] = &[
     },
     PermissionGrant {
         name: "Screen Recording",
-        unlocks: "C1 auto-still via ScreenCaptureKit (OpenAtat windows excluded).",
+        unlocks: "C1 / C2 / C4 stills via ScreenCaptureKit (OpenAtat windows excluded).",
         how: "System Settings → Privacy & Security → Screen Recording → openatatd. Denied: skip the tile. Not CGWindowListCreateImage.",
     },
     PermissionGrant {
@@ -70,7 +70,7 @@ pub const WIN_GRANTS: &[PermissionGrant] = &[
     },
     PermissionGrant {
         name: "Graphics Capture",
-        unlocks: "C1 auto-still via Windows.Graphics.Capture CreateForMonitor (overlay HWND excluded).",
+        unlocks: "C1 / C2 / C4 stills via Windows.Graphics.Capture CreateForMonitor (overlay / picker HWND excluded).",
         how: "Settings → Privacy & security → Screenshots and apps (graphics capture). Denied: skip the tile. Not GraphicsCapturePicker.",
     },
     PermissionGrant {

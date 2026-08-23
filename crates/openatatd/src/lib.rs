@@ -44,6 +44,7 @@ pub struct Cli {
     pub hide_orb_client: bool,
     pub show_orb_client: bool,
     pub shelf_client: bool,
+    pub capture: Option<openatat_ipc::CaptureKind>,
     pub orb_click: bool,
     pub open_ui: Option<UiPage>,
     pub ui_image: Option<PathBuf>,
@@ -63,6 +64,7 @@ impl Cli {
             hide_orb_client: false,
             show_orb_client: false,
             shelf_client: false,
+            capture: None,
             orb_click: false,
             open_ui: None,
             ui_image: None,
@@ -71,11 +73,17 @@ impl Cli {
             action: None,
         };
         let mut expect_image = false;
+        let mut expect_capture = false;
         for arg in args {
             let arg = arg.as_ref();
             if expect_image {
                 cli.ui_image = Some(PathBuf::from(arg));
                 expect_image = false;
+                continue;
+            }
+            if expect_capture {
+                cli.capture = parse_capture_kind(arg);
+                expect_capture = false;
                 continue;
             }
             match arg {
@@ -90,6 +98,7 @@ impl Cli {
                 "hide-orb" => cli.hide_orb_client = true,
                 "show-orb" => cli.show_orb_client = true,
                 "--shelf" | "shelf" => cli.shelf_client = true,
+                "--capture" | "capture" => expect_capture = true,
                 "--orb-click" => cli.orb_click = true,
                 "--settings" => cli.open_ui = Some(UiPage::Settings),
                 "--history" => cli.open_ui = Some(UiPage::History),
@@ -140,6 +149,9 @@ USAGE:
                             Spawn openatat-ui C17 studio (local PNG/JPEG)
   openatatd --shelf         Open the C14 clipboard shelf (IPC to a running daemon,
                             or in-process if none). Not a @@ summon.
+  openatatd --capture area  C2 rubber-band still (IPC, or in-process if none)
+  openatatd --capture display
+                            C4 still of the output under the pointer / focus
 
 Linux product trigger: Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 macOS product trigger: listen-only CGEvent tap → ImeFilter (Input Monitoring optional).
@@ -147,6 +159,14 @@ Windows product trigger: process-local keyboard hook / Raw Input → ImeFilter (
 The overlay is native (layer-shell / NSPanel / WS_EX_NOACTIVATE), not gpui. See SPEC.md.
 "
     );
+}
+
+fn parse_capture_kind(s: &str) -> Option<openatat_ipc::CaptureKind> {
+    match s {
+        "area" | "c2" => Some(openatat_ipc::CaptureKind::Area),
+        "display" | "c4" => Some(openatat_ipc::CaptureKind::Display),
+        _ => None,
+    }
 }
 
 fn parse_action(s: &str) -> Option<PromptAction> {
@@ -213,6 +233,12 @@ mod tests {
         assert!(cli.shelf_client);
         let cli = Cli::parse(["shelf"]);
         assert!(cli.shelf_client);
+        let cli = Cli::parse(["--capture", "area"]);
+        assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Area));
+        let cli = Cli::parse(["--capture", "display"]);
+        assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Display));
+        let cli = Cli::parse(["capture", "area"]);
+        assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Area));
         let cli = Cli::parse(["--studio", "--image", "/tmp/shot.png"]);
         assert_eq!(cli.open_ui, Some(UiPage::Studio));
         assert_eq!(
@@ -250,6 +276,18 @@ pub fn run(cli: Cli) -> Result<()> {
                     return crate::shelf::run_headless_shelf().map(|_| ());
                 }
                 crate::shelf::run_shelf().map(|_| ())
+            }
+        };
+    }
+    if let Some(kind) = cli.capture {
+        return match daemon::send_capture(kind) {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("openatatd: no daemon for capture ({e}); opening here");
+                if cli.headless || !platform::has_overlay_display() {
+                    return crate::capture::run_headless_capture(kind).map(|_| ());
+                }
+                crate::capture::run_capture(kind).map(|_| ())
             }
         };
     }
