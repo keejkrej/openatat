@@ -22,6 +22,8 @@ pub enum OverlayEnd {
     Tab,
     /// Copy or Search completed; field was not modified.
     Copied,
+    /// Super+Return / Handoff opened a terminal session.
+    Handoff,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

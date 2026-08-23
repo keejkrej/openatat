@@ -40,6 +40,8 @@ pub enum EntryPoint {
     FileManager,
     /// Orb click — P2.
     Orb,
+    /// Super+Return / Handoff opened the user's terminal.
+    Handoff,
 }
 
 /// One history row. Exactly these four fields. Never responses or captures.
@@ -146,6 +148,19 @@ mod tests {
         assert_eq!(DaemonRequest::decode(&line).unwrap(), req);
         assert!(line.contains("open-ui"));
         assert!(line.contains("history"));
+    }
+
+    #[test]
+    fn handoff_entry_roundtrip() {
+        let rec = HistoryRecord {
+            id: "2".into(),
+            timestamp: "2026-08-23T00:00:00Z".into(),
+            entry: EntryPoint::Handoff,
+            prompt: "continue in the terminal".into(),
+        };
+        let v = serde_json::to_value(&rec).unwrap();
+        assert_eq!(v["entry"], "handoff");
+        assert_eq!(v.as_object().unwrap().len(), 4);
     }
 
     #[test]

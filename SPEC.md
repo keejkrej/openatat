@@ -32,7 +32,7 @@ It is not another workspace. There are no sessions to maintain. Call it up, get 
 - OpenAtat must not become the active application. The client keeps its “active app” identity.
 - Keyboard interactivity is **OnDemand, and only while the prompt / preview / selection bar is up**. Idle has no mapped surface.
 - `Esc` cancels from any state.
-- Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) re-runs with the same attachments and replaces the preview. Handoff (`⌘Return` / Super+Return → real agent session) is later.
+- Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) re-runs with the same attachments and replaces the preview. Handoff (`⌘Return` / Super+Return → real agent session in the user's terminal) is **done on Linux**.
 
 ### Selection bar (C10)
 
@@ -63,7 +63,7 @@ This split is a product decision. Do not revisit it for convenience.
 
 | Process | Owns | Lifetime |
 | --- | --- | --- |
-| `openatatd` (native applet) | `@@` overlay, C10 selection bar, Orb (later), trigger, insert, capture | Always on. Idle has **zero GPU windows**. |
+| `openatatd` (native applet) | `@@` overlay, C10 selection bar, terminal handoff, Orb (later), trigger, insert, capture | Always on. Idle has **zero GPU windows**. |
 | `openatat-ui` (gpui-ce) | Settings, studio / annotation, history browser, first-run | Spawn on demand, quit when idle. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has `LayerShell` / `PopUp` / `Transparent` / `focus: false`, but that is **not** a nonactivating panel.
@@ -86,7 +86,7 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 - **Prompt as data.** Templates are an argv list, never a shell line. The prompt is one argv element (`{prompt}`), stdin (no placeholder), or a temp file the template names (`{prompt_file}`). Quotes and newlines stay intact. `OPENATAT_AGENT` is an escape hatch: that binary, prompt on stdin.
 - **Scratch workspace.** Every run creates a directory under `~/.cache/openatat/scratch/`, sets cwd there, and filters the environment. Quick answers never use the user’s current folder (file-manager tiles are not implemented). Conservative flags are used only when the CLI documents them (`claude --print --permission-mode plan`, `codex exec --sandbox read-only`, `grok --sandbox read-only --prompt-file`, Cursor `--print --mode ask --trust`). Unverified flags are not invented.
 - **Launch failure.** Copy the prompt to the clipboard, then show the error. Never lose what they typed.
-- **Handoff** to the user’s own terminal or agent app is still later.
+- **Handoff** (Linux): Super+Return / preview **Handoff** button. `openatatd` launches the user’s terminal in a scratch cwd (`~/.cache/openatat/scratch/<id>/`) and starts the same BYO CLI as an interactive session (no `--print` / plan-mode / one-shot flags). Prompt is argv or a file, never a shell string. Terminal pick: `handoff.terminal` in `agent.toml`, else PATH order ghostty → kitty → alacritty → wezterm → foot → gnome-terminal → xterm. File-manager tiles are not implemented, so cwd is never guessed from a window title. Launch failure copies the prompt first. Esc still cancels. Successful handoff dismisses the overlay. Mac/Win: cfg-gated `NSWorkspace` / `CreateProcessW` stubs.
 
 ## 2. Capture inventory (C1–C19)
 
@@ -263,7 +263,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio / first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
 - Selection bar (C10) for Linux mouse selections when AT-SPI reports selected text. **Done.** Keyboard selections do not summon. Browsers/Electron that expose no selection are skipped (no clipboard save/restore). User-defined prompts and an exclude list can wait on Settings.
 - Quickshell bar chip (not Waybar).
-- Handoff to a terminal.
+- Handoff to a terminal. **Done on Linux.**
 
 ### P2 — Other OS + the rest of C2–C19
 
