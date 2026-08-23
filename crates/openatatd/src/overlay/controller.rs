@@ -126,7 +126,7 @@ impl OverlayController {
             Phase::Bar => "mouse selection · Ask / Copy / Search / Summarize / Explain",
             Phase::Prompt => {
                 if self.has_tile {
-                    "C1 still attached · remove drops it · Edit opens studio"
+                    "still attached · remove drops it · Edit opens studio"
                 } else {
                     "no still · capture missing or tile removed"
                 }

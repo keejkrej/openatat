@@ -1,7 +1,9 @@
-//! Capture inventory C1–C19 lives in SPEC.md. P0 implements C1 only.
+//! Capture inventory C1–C19 lives in SPEC.md.
 //!
-//! Not in P0 (stubs / comments only):
-//!   C2 area, C3 window, C4 explicit display, C5 all-in-one,
+//! Live here: C1 auto-still, **C2 area**, **C4 explicit display**.
+//!
+//! Not in this crate (stubs / comments only):
+//!   C3 window, C5 all-in-one,
 //!   C6 scrolling, C7 video, C8 GIF, C9 OCR,
 //!   C10 selection bar lives in `crate::selection` (native layer-shell, not here),
 //!   C11–C12 file manager (Nautilus has no selection D-Bus API),
@@ -13,8 +15,16 @@
 //!   C18 video trim, C19 record bezel.
 //!
 //! gpui `ScreenCaptureFrame` is a stub — capture stays in this daemon.
+//! Overlay / picker are never gpui. Portal Screenshot choosers stay illegal
+//! on the C1 path.
+
+use openatat_ipc::CaptureKind;
 
 use crate::error::Result;
+use crate::session::SessionEnd;
+
+pub mod picker;
+pub mod policy;
 
 /// Long-edge target after C1 downscale (SPEC: ~1600–1920).
 pub const LONG_EDGE: u32 = 1760;
@@ -83,6 +93,103 @@ impl Dims for image::DynamicImage {
     }
 }
 
+/// CPU crop of an already-captured PNG, then the usual long-edge downscale.
+pub fn crop_png(png: &[u8], x: u32, y: u32, w: u32, h: u32) -> Result<Still> {
+    let img = image::load_from_memory(png)?;
+    let img_w = img.width();
+    let img_h = img.height();
+    if w == 0 || h == 0 || x >= img_w || y >= img_h {
+        return Err(crate::error::Error::msg("crop is outside the still"));
+    }
+    let w = w.min(img_w.saturating_sub(x));
+    let h = h.min(img_h.saturating_sub(y));
+    let cropped = img.crop_imm(x, y, w, h);
+    let mut out = Vec::new();
+    cropped.write_to(
+        &mut std::io::Cursor::new(&mut out),
+        image::ImageFormat::Png,
+    )?;
+    downscale_long_edge(&out, LONG_EDGE)
+}
+
+/// C4: one still of the output under the pointer / focused window.
+/// This is the C4 still itself — the session constructor must not call it again.
+pub fn capture_display_still() -> Result<Still> {
+    let output = crate::focus::output_under_pointer()
+        .or_else(crate::focus::focused_output)
+        .map(|o| o.name);
+    capture_active_output(output.as_deref())
+}
+
+/// C2: native picker, then crop. Esc / empty drag returns `None` (no `@@`).
+pub fn capture_area_still() -> Result<Option<Still>> {
+    let region = match picker::pick_region() {
+        Ok(r) => r,
+        Err(e) if e.is_wayland_connect() => {
+            eprintln!("openatatd: native area picker unavailable ({e}); slurp fallback");
+            picker::slurp_fallback()?
+        }
+        Err(e) => return Err(e),
+    };
+    let Some(region) = region else {
+        return Ok(None);
+    };
+    Ok(Some(capture_region(&region)?))
+}
+
+fn capture_region(region: &picker::PickedRegion) -> Result<Still> {
+    #[cfg(target_os = "linux")]
+    {
+        return linux::capture_region(region);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return macos::capture_region(region);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        return windows::capture_region(region);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = region;
+        Err(crate::error::Error::msg("area capture unsupported on this OS"))
+    }
+}
+
+/// C2/C4 entry. Successful still → Orb-click session + that tile only.
+/// Cancelled picker → no overlay.
+pub fn run_capture(kind: CaptureKind) -> Result<SessionEnd> {
+    let still = match kind {
+        CaptureKind::Display => capture_display_still()?,
+        CaptureKind::Area => match capture_area_still()? {
+            Some(s) => s,
+            None => return Ok(SessionEnd::Cancelled),
+        },
+    };
+    crate::session::run_explicit_still(still)
+}
+
+/// Headless C2/C4. Area cannot rubber-band without a compositor.
+pub fn run_headless_capture(kind: CaptureKind) -> Result<SessionEnd> {
+    match kind {
+        CaptureKind::Display => {
+            let still = capture_display_still()?;
+            let mut session = crate::session::Session::begin_explicit_still(still);
+            session.prompt = std::env::var("OPENATAT_PROMPT")
+                .unwrap_or_else(|_| "hello from openatat".into());
+            crate::session::run_headless_session(session)
+        }
+        CaptureKind::Area => {
+            eprintln!(
+                "openatatd: --headless --capture area cancelled (no native picker). \
+                 Use a compositor, or slurp fallback when the picker cannot map."
+            );
+            Ok(SessionEnd::Cancelled)
+        }
+    }
+}
+
 /// C1: one-shot still of the active output.
 pub fn capture_active_output(output: Option<&str>) -> Result<Still> {
     #[cfg(target_os = "linux")]
@@ -114,26 +221,75 @@ mod linux {
     pub fn capture_active_output(output: Option<&str>) -> Result<Still> {
         // grim is silent on Hyprland. Do not use xdg-desktop-portal Screenshot
         // on this path — that presents a picker and breaks the Atat moment.
-        let tmp = std::env::temp_dir().join(format!("openatat-c1-{}.png", std::process::id()));
+        let png = grim_output(output)?;
+        downscale_long_edge(&png, LONG_EDGE)
+    }
+
+    /// C2 crop backend. Geometry comes from the native picker (or slurp
+    /// fallback). This is not the product picker.
+    pub fn capture_region(region: &super::picker::PickedRegion) -> Result<Still> {
+        match grim_geometry(&region.as_grim_geometry()) {
+            Ok(png) => downscale_long_edge(&png, LONG_EDGE),
+            Err(_) => {
+                let png = grim_output(region.output.as_deref())?;
+                let img = image::load_from_memory(&png)?;
+                let (lx, ly) = crate::focus::all_outputs()
+                    .into_iter()
+                    .find(|o| region.output.as_deref() == Some(o.name.as_str()))
+                    .map(|o| (region.x - o.x, region.y - o.y))
+                    .unwrap_or((region.x, region.y));
+                let mapped = super::policy::map_surface_rect_to_image(
+                    lx,
+                    ly,
+                    region.width,
+                    region.height,
+                    region.surface_w.max(1),
+                    region.surface_h.max(1),
+                    img.width(),
+                    img.height(),
+                )
+                .ok_or_else(|| crate::error::Error::msg("C2 crop is empty"))?;
+                super::crop_png(&png, mapped.0, mapped.1, mapped.2, mapped.3)
+            }
+        }
+    }
+
+    fn grim_output(output: Option<&str>) -> Result<Vec<u8>> {
+        grim_to_file(output, None)
+    }
+
+    fn grim_geometry(geom: &str) -> Result<Vec<u8>> {
+        grim_to_file(None, Some(geom))
+    }
+
+    fn grim_to_file(output: Option<&str>, geometry: Option<&str>) -> Result<Vec<u8>> {
+        let tag = if geometry.is_some() { "c2" } else { "c1" };
+        let tmp = std::env::temp_dir().join(format!(
+            "openatat-{tag}-{}.png",
+            std::process::id()
+        ));
         let mut cmd = Command::new("grim");
         if let Some(name) = output {
             cmd.args(["-o", name]);
         }
+        if let Some(g) = geometry {
+            cmd.args(["-g", g]);
+        }
         cmd.arg(&tmp);
         let status = cmd.status().map_err(|e| {
             crate::error::Error::msg(format!(
-                "grim is required for C1 auto-still (`{e}`). On Omarchy/Hyprland install grim."
+                "grim is required for stills (`{e}`). On Omarchy/Hyprland install grim."
             ))
         })?;
         if !status.success() {
             let _ = std::fs::remove_file(&tmp);
             return Err(crate::error::Error::msg(
-                "grim failed (is the output name valid?)",
+                "grim failed (is the output name / geometry valid?)",
             ));
         }
         let png = std::fs::read(&tmp)?;
         let _ = std::fs::remove_file(&tmp);
-        downscale_long_edge(&png, LONG_EDGE)
+        Ok(png)
     }
 }
 
@@ -179,7 +335,29 @@ mod macos {
         capture_sck()
     }
 
+    pub fn capture_region(region: &super::picker::PickedRegion) -> Result<Still> {
+        let png = capture_sck_png()?;
+        let img = image::load_from_memory(&png)?;
+        let mapped = super::policy::map_surface_rect_to_image(
+            region.x,
+            region.y,
+            region.width,
+            region.height,
+            region.surface_w.max(1),
+            region.surface_h.max(1),
+            img.width(),
+            img.height(),
+        )
+        .ok_or_else(|| crate::error::Error::msg("C2 crop is empty"))?;
+        super::crop_png(&png, mapped.0, mapped.1, mapped.2, mapped.3)
+    }
+
     fn capture_sck() -> Result<Still> {
+        let png = capture_sck_png()?;
+        downscale_long_edge(&png, LONG_EDGE)
+    }
+
+    fn capture_sck_png() -> Result<Vec<u8>> {
         let content = shareable_content()?;
         let displays = unsafe { content.displays() };
         if displays.is_empty() {
@@ -240,7 +418,7 @@ mod macos {
             );
         }
         match rx.recv_timeout(Duration::from_secs(3)) {
-            Ok(Ok(png)) => downscale_long_edge(&png, LONG_EDGE),
+            Ok(Ok(png)) => Ok(png),
             Ok(Err(e)) => Err(crate::error::Error::msg(e)),
             Err(_) => Err(crate::error::Error::msg(
                 "ScreenCaptureKit screenshot timed out",
@@ -380,6 +558,73 @@ mod tests {
         );
         assert!(src.contains("CreateForMonitor"));
         assert!(src.contains("WDA_EXCLUDEFROMCAPTURE") || src.contains("exclude"));
+    }
+
+    #[test]
+    fn crop_png_cuts_the_rect() {
+        let mut img = image::RgbaImage::new(20, 10);
+        for (x, y, px) in img.enumerate_pixels_mut() {
+            *px = image::Rgba([x as u8, y as u8, 0, 255]);
+        }
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let still = crop_png(&png, 5, 2, 8, 4).unwrap();
+        assert_eq!((still.width, still.height), (8, 4));
+    }
+
+    #[test]
+    fn area_session_does_not_call_capture_active_output() {
+        let src = include_str!("mod.rs");
+        let start = src
+            .find("pub fn capture_area_still")
+            .expect("capture_area_still");
+        let after = &src[start..];
+        let end = after.find("\nfn capture_region").unwrap_or(600);
+        let body = &after[..end];
+        assert!(
+            !body.contains("capture_active_output"),
+            "C2 must not call C1 a second time: {body}"
+        );
+        let run = src.find("pub fn run_capture").expect("run_capture");
+        let run_body = &src[run..run + 500];
+        assert!(run_body.contains("run_explicit_still"));
+        assert!(!run_body.contains("Session::begin("));
+    }
+
+    #[test]
+    fn c1_path_never_uses_portal_screenshot() {
+        let src = include_str!("mod.rs");
+        let start = src.find("fn grim_to_file").expect("grim_to_file");
+        let grim = &src[start..start + 900];
+        assert!(grim.contains("Command::new(\"grim\")"));
+        assert!(!grim.contains("ashpd"));
+        assert!(!grim.contains("Screenshot"));
+        assert!(!grim.contains("portal"));
+    }
+
+    #[test]
+    fn picker_and_overlay_forbid_gpui_iced_set_foreground() {
+        let overlay = [
+            include_str!("../overlay/mod.rs"),
+            include_str!("../overlay/linux.rs"),
+            include_str!("../overlay/macos.rs"),
+            include_str!("../overlay/windows.rs"),
+            include_str!("picker/mod.rs"),
+            include_str!("picker/draw.rs"),
+            include_str!("picker/linux.rs"),
+            include_str!("picker/macos.rs"),
+            include_str!("picker/windows.rs"),
+        ];
+        for src in overlay {
+            let gpui = ["gpui", "::"].concat();
+            let iced = ["iced", "::"].concat();
+            let set_fg = ["SetForegroundWindow", "("].concat();
+            assert!(!src.contains(&gpui));
+            assert!(!src.contains(&iced));
+            assert!(!src.contains(&set_fg));
+        }
     }
 
     #[test]

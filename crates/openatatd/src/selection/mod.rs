@@ -187,6 +187,7 @@ mod tests {
             y: 0,
             width: 200,
             height: 100,
+            focused: true,
         };
         let p = placement_for(
             Some(Rect {

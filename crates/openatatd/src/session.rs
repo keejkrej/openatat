@@ -96,6 +96,15 @@ impl Session {
         session
     }
 
+    /// C2 / C4: reuse the Orb-click constructor and attach the captured PNG.
+    /// Never calls [`capture::capture_active_output`] — that would be a second C1.
+    pub fn begin_explicit_still(still: Still) -> Self {
+        debug_assert!(!crate::capture::policy::explicit_still_auto_attaches_c1());
+        let mut session = Self::begin_orb_click();
+        session.still = Some(still);
+        session
+    }
+
     /// C14 shelf. No C1 still. Focus is captured for paste abort.
     pub fn begin_shelf() -> Self {
         Self {
@@ -149,6 +158,11 @@ pub enum SessionEnd {
 
 pub fn run_orb_click() -> Result<SessionEnd> {
     let mut session = Session::begin_orb_click();
+    run_overlay_session(&mut session)
+}
+
+pub fn run_explicit_still(still: Still) -> Result<SessionEnd> {
+    let mut session = Session::begin_explicit_still(still);
     run_overlay_session(&mut session)
 }
 
@@ -336,6 +350,25 @@ mod tests {
         assert!(s.still.is_none());
         assert!(s.dropped_text.is_empty());
         assert!(!crate::orb::auto_attach_c1(s.entry));
+    }
+
+    #[test]
+    fn explicit_still_reuses_orb_constructor_without_c1() {
+        let img = image::RgbaImage::new(8, 8);
+        let mut png = Vec::new();
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let still = Still::from_png(png).unwrap();
+        let s = Session::begin_explicit_still(still);
+        assert!(s.still.is_some());
+        assert_eq!(s.entry, EntryPoint::Orb);
+        assert!(!crate::orb::auto_attach_c1(s.entry));
+        let src = include_str!("session.rs");
+        let start = src.find("fn begin_explicit_still").expect("begin_explicit_still");
+        let body = &src[start..start + 400];
+        assert!(body.contains("begin_orb_click"));
+        assert!(!body.contains("capture_active_output"));
     }
 
     #[test]
