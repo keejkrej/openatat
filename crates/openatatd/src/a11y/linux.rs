@@ -13,7 +13,8 @@ use zbus::zvariant::OwnedObjectPath;
 use zbus::{proxy, Address};
 
 use super::{
-    interpret_selection_snapshot, is_text_field, Rect, SelectionProbe, ROLE_PASSWORD_TEXT,
+    interpret_selection_snapshot, is_text_field, MouseUpHit, Rect, SelectionProbe,
+    ROLE_PASSWORD_TEXT,
 };
 use crate::error::{Error, Result};
 use crate::trigger::FieldKind;
@@ -326,12 +327,6 @@ pub fn replace_range(text: &str, start: i32, end: i32) -> Result<bool> {
         .insert_text(start, text, text.len() as i32)
         .map_err(|e| Error::msg(e.to_string()))?;
     Ok(ok)
-}
-
-/// Pointer position from the AT-SPI mouse-up that triggered a probe.
-pub struct MouseUpHit {
-    pub probe: SelectionProbe,
-    pub pointer: Option<(i32, i32)>,
 }
 
 /// AT-SPI mouse-up watcher. Keyboard `object:text-selection-changed` is

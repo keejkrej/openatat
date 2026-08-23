@@ -127,13 +127,206 @@ mod linux {
 #[cfg(target_os = "macos")]
 mod macos {
     use super::*;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use block2::RcBlock;
+    use objc2::rc::Retained;
+    use objc2_foundation::{NSArray, NSError};
+    use objc2_screen_capture_kit::{
+        SCContentFilter, SCDisplay, SCRunningApplication, SCScreenshotManager, SCShareableContent,
+        SCStreamConfiguration, SCWindow,
+    };
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGImageGetWidth(image: *mut std::ffi::c_void) -> usize;
+        fn CGImageGetHeight(image: *mut std::ffi::c_void) -> usize;
+        fn CGImageGetBytesPerRow(image: *mut std::ffi::c_void) -> usize;
+        fn CGImageGetBitsPerPixel(image: *mut std::ffi::c_void) -> usize;
+        fn CGImageGetDataProvider(image: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        fn CGDataProviderCopyData(provider: *mut std::ffi::c_void) -> *mut std::ffi::c_void;
+        fn CFDataGetLength(data: *mut std::ffi::c_void) -> isize;
+        fn CFDataGetBytePtr(data: *mut std::ffi::c_void) -> *const u8;
+        fn CFRelease(cf: *mut std::ffi::c_void);
+    }
 
     pub fn capture_active_output() -> Result<Still> {
-        // ScreenCaptureKit. SCShareableContent + SCScreenshotManager.
-        // Do not use gpui ScreenCaptureFrame (stub).
-        Err(crate::error::Error::msg(
-            "macOS capture is a stub: ScreenCaptureKit (not gpui ScreenCaptureFrame)",
-        ))
+        // Screen Recording is optional. Skip the tile when TCC denies.
+        // Do not use deprecated CGWindowListCreateImage as the primary path.
+        unsafe {
+            if !CGPreflightScreenCaptureAccess() {
+                return Err(crate::error::Error::msg(
+                    "Screen Recording is not granted — C1 still skipped. \
+                     System Settings → Privacy & Security → Screen Recording → openatatd.",
+                ));
+            }
+        }
+        capture_sck()
+    }
+
+    fn capture_sck() -> Result<Still> {
+        let content = shareable_content()?;
+        let displays = unsafe { content.displays() };
+        if displays.is_empty() {
+            return Err(crate::error::Error::msg("ScreenCaptureKit: no displays"));
+        }
+        let display: Retained<SCDisplay> = displays
+            .iter()
+            .next()
+            .ok_or_else(|| crate::error::Error::msg("ScreenCaptureKit: empty display list"))?
+            .retain();
+
+        let excluded_apps = our_apps(&content);
+        let excluded_windows = our_windows(&content);
+        let filter = unsafe {
+            if !excluded_apps.is_empty() {
+                SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
+                    SCContentFilter::alloc(),
+                    &display,
+                    &excluded_apps,
+                    &NSArray::from_retained_slice(&[]),
+                )
+            } else {
+                SCContentFilter::initWithDisplay_excludingWindows(
+                    SCContentFilter::alloc(),
+                    &display,
+                    &excluded_windows,
+                )
+            }
+        };
+
+        let width = unsafe { display.width() } as u32;
+        let height = unsafe { display.height() } as u32;
+        let config = SCStreamConfiguration::new();
+        unsafe {
+            config.setWidth(width as usize);
+            config.setHeight(height as usize);
+            config.setShowsCursor(false);
+        }
+
+        let (tx, rx) = mpsc::channel();
+        let block = RcBlock::new(move |image: *mut objc2_core_graphics::CGImage, err: *mut NSError| {
+            if image.is_null() {
+                let msg = unsafe { err.as_ref() }
+                    .map(|e| e.localizedDescription().to_string())
+                    .unwrap_or_else(|| "SCScreenshotManager returned no image".into());
+                let _ = tx.send(Err(msg));
+            } else {
+                let _ = tx.send(cgimage_png(image as *mut std::ffi::c_void));
+            }
+        });
+        unsafe {
+            SCScreenshotManager::captureImageWithFilter_configuration_completionHandler(
+                &filter,
+                &config,
+                Some(&block),
+            );
+        }
+        match rx.recv_timeout(Duration::from_secs(3)) {
+            Ok(Ok(png)) => downscale_long_edge(&png, LONG_EDGE),
+            Ok(Err(e)) => Err(crate::error::Error::msg(e)),
+            Err(_) => Err(crate::error::Error::msg(
+                "ScreenCaptureKit screenshot timed out",
+            )),
+        }
+    }
+
+    fn shareable_content() -> Result<Retained<SCShareableContent>> {
+        let (tx, rx) = mpsc::channel();
+        let block = RcBlock::new(move |content: *mut SCShareableContent, err: *mut NSError| {
+            if content.is_null() {
+                let msg = unsafe { err.as_ref() }
+                    .map(|e| e.localizedDescription().to_string())
+                    .unwrap_or_else(|| "SCShareableContent unavailable".into());
+                let _ = tx.send(Err(msg));
+            } else {
+                let retained = unsafe { Retained::retain(content) }
+                    .ok_or_else(|| "SCShareableContent retain failed".to_string());
+                let _ = tx.send(retained);
+            }
+        });
+        unsafe {
+            SCShareableContent::getShareableContentWithCompletionHandler(&block);
+        }
+        match rx.recv_timeout(Duration::from_secs(3)) {
+            Ok(Ok(c)) => Ok(c),
+            Ok(Err(e)) => Err(crate::error::Error::msg(e)),
+            Err(_) => Err(crate::error::Error::msg("SCShareableContent timed out")),
+        }
+    }
+
+    fn our_apps(content: &SCShareableContent) -> Retained<NSArray<SCRunningApplication>> {
+        let apps = unsafe { content.applications() };
+        let mut ours = Vec::new();
+        for app in apps.iter() {
+            let name = unsafe { app.applicationName().to_string() };
+            let bid = unsafe { app.bundleIdentifier().to_string() };
+            if bid.contains("openatat") || name.to_ascii_lowercase().contains("openatat") {
+                ours.push(app.retain());
+            }
+        }
+        NSArray::from_retained_slice(&ours)
+    }
+
+    fn our_windows(content: &SCShareableContent) -> Retained<NSArray<SCWindow>> {
+        let windows = unsafe { content.windows() };
+        let mut ours = Vec::new();
+        for w in windows.iter() {
+            let title = unsafe { w.title().to_string() };
+            if title.contains("OpenAtat") {
+                ours.push(w.retain());
+            }
+        }
+        NSArray::from_retained_slice(&ours)
+    }
+
+    fn cgimage_png(image: *mut std::ffi::c_void) -> std::result::Result<Vec<u8>, String> {
+        unsafe {
+            let w = CGImageGetWidth(image) as u32;
+            let h = CGImageGetHeight(image) as u32;
+            let bpr = CGImageGetBytesPerRow(image);
+            let bpp = CGImageGetBitsPerPixel(image);
+            if w == 0 || h == 0 || bpp < 24 {
+                return Err("CGImage has no pixels".into());
+            }
+            let provider = CGImageGetDataProvider(image);
+            if provider.is_null() {
+                return Err("CGImage has no data provider".into());
+            }
+            let data = CGDataProviderCopyData(provider);
+            if data.is_null() {
+                return Err("CGDataProviderCopyData failed".into());
+            }
+            let len = CFDataGetLength(data) as usize;
+            let ptr = CFDataGetBytePtr(data);
+            let bytes = std::slice::from_raw_parts(ptr, len);
+            let spp = (bpp / 8).max(3) as usize;
+            let mut rgba = vec![0u8; (w * h * 4) as usize];
+            for y in 0..h as usize {
+                let row = &bytes[y * bpr..];
+                for x in 0..w as usize {
+                    let s = x * spp;
+                    let d = (y * w as usize + x) * 4;
+                    if s + 2 < row.len() && d + 3 < rgba.len() {
+                        // SCK typically delivers BGRA.
+                        rgba[d] = row[s + 2];
+                        rgba[d + 1] = row[s + 1];
+                        rgba[d + 2] = row[s];
+                        rgba[d + 3] = if spp > 3 { row[s + 3] } else { 255 };
+                    }
+                }
+            }
+            CFRelease(data);
+            let img = image::RgbaImage::from_raw(w, h, rgba)
+                .ok_or_else(|| "RGBA size mismatch".to_string())?;
+            let mut png = Vec::new();
+            image::DynamicImage::ImageRgba8(img)
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .map_err(|e| e.to_string())?;
+            Ok(png)
+        }
     }
 }
 

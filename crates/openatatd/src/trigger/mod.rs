@@ -5,8 +5,15 @@
 //! plus the dev-only Wayland/test socket (`demo`).
 
 mod ime;
+pub mod macos_policy;
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 pub use ime::{Fcitx5Backend, FieldKind, IbusBackend, ImeAction, ImeBackend, ImeEvent, ImeFilter};
+
+#[cfg(target_os = "macos")]
+pub use macos::MacTapBackend;
 
 /// Last two committed characters. Nothing before or after is kept.
 #[derive(Debug, Clone, Default)]

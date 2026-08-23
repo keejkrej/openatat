@@ -2,7 +2,7 @@
 
 Open clone of [Atat](https://atatapp.com): type `@@` in any text field. OpenAtat gathers what you are looking at, runs the CLI agent you already have, and puts the answer back in the line you were typing. It never becomes the active app.
 
-This repository is the P0 Linux/Omarchy spike. Product contract, capture inventory C1–C19, OS API matrix, budgets, permissions, ship order, and landmines: **[SPEC.md](SPEC.md)**. Product facts follow Atat’s [manual](https://atatapp.com/manual) and [FAQ](https://atatapp.com/faq).
+This repository is the Linux/Omarchy spike plus a real macOS `@@` path. Product contract, capture inventory C1–C19, OS API matrix, budgets, permissions, ship order, and landmines: **[SPEC.md](SPEC.md)**. Product facts follow Atat’s [manual](https://atatapp.com/manual) and [FAQ](https://atatapp.com/faq).
 
 Apache-2.0. No bundled LLM.
 
@@ -16,7 +16,7 @@ Apache-2.0. No bundled LLM.
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
 
 - **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surface inside `openatatd`, software `wl_shm`. Keyboard `OnDemand` only while the prompt or selection bar is up. The selection bar is the same compositor client as the `@@` popover — not a gpui window.
-- **Mac (later):** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel`.
+- **macOS:** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel` (`canJoinAllSpaces`, `fullScreenAuxiliary`). Never becomes the active app. Trigger is a listen-only event tap feeding `ImeFilter` — not a global summon hotkey.
 - **Windows (later):** `WS_EX_NOACTIVATE`.
 
 Omarchy 4 is Hyprland + Quickshell (Waybar is gone). Do not add Waybar modules. The Omarchy presence path is the Quickshell bar chip in `omarchy/openatat/` (`openatat.chip`). It is not a second overlay and not the Orb.
@@ -149,7 +149,7 @@ Every run uses a **scratch workspace** under `~/.cache/openatat/scratch/<id>/`. 
 
 Some work should not end in a text snippet. `Super+Return` (Atat `⌘Return`) or the **Handoff** button on the preview card opens a real interactive session in your terminal with the gathered prompt (and still tile, if present) already loaded. OpenAtat then gets out of the way.
 
-- **cwd** is always a new scratch dir (`~/.cache/openatat/scratch/<id>/`). File-manager tiles are not implemented, so the window title is never used as a project folder.
+- **cwd** is always a new scratch dir (`~/.cache/openatat/scratch/<id>/`). Finder tiles (Mac Automation) are attachments only — the window title is never used as a project folder. Nautilus tiles are not implemented.
 - **Terminal** is the first of these on `PATH`: `ghostty`, `kitty`, `alacritty`, `wezterm`, `foot`, `gnome-terminal`, `xterm`. Override in `~/.config/openatat/agent.toml`:
 
 ```toml
@@ -161,7 +161,7 @@ Flags come from each emulator's docs (`ghostty --working-directory=DIR -e …`, 
 - **Interactive CLI** (not `--print` / plan-mode / one-shot): `claude {prompt}`, `codex {prompt}`, `cursor-agent {prompt}`, `pi {prompt}`, `opencode --prompt {prompt}`. Grok and Hermes have no documented TUI-preload flag — the terminal opens in scratch on `grok` / `hermes` with `prompt.txt` already written. Dummy (`echo`) opens the terminal in scratch only.
 - If launch fails, the prompt is copied to the clipboard **before** the error is shown.
 
-Mac/Win handoff is a cfg-gated stub (`NSWorkspace` / `CreateProcessW`).
+macOS handoff uses `NSWorkspace.openApplication` with `OpenConfiguration` (`arguments`, `currentDirectoryURL`) and the same scratch cwd. The prompt is never spliced into `open -a` / `sh -c`. Windows remains a `CreateProcessW` stub.
 
 A machine with `claude` on `PATH`:
 
@@ -226,6 +226,42 @@ The chip watches `$XDG_RUNTIME_DIR/openatat/status.json` (`idle` / `busy` / `err
 
 Full notes: [`omarchy/openatat/README.md`](omarchy/openatat/README.md).
 
+## How to run on macOS
+
+Build (needs the Apple SDK — this Linux CI image does not have it):
+
+```bash
+cargo build -p openatatd
+```
+
+Always-on daemon (accessory `NSApplication`, no Dock bounce):
+
+```bash
+cargo run -p openatatd
+```
+
+Type `@@` in a text field (Input Monitoring + Accessibility). The two `@` characters are swallowed via AX replace (never in a password field) and an `NSPanel` nonactivating overlay opens. `Esc` cancels. `Tab` copies to `NSPasteboard` then AX-inserts if the frontmost app + focused element still match. `⌘Return` hands off to Terminal / iTerm / Ghostty / kitty in a scratch cwd.
+
+Without Input Monitoring, the listen-only tap is idle. `--demo` and the unix socket still work:
+
+```bash
+# terminal A
+cargo run -p openatatd
+
+# terminal B
+cargo run -p openatatd -- trigger
+# or
+cargo run -p openatatd -- --demo
+```
+
+Headless (no NSPanel):
+
+```bash
+cargo run -p openatatd -- --headless --prompt='make this friendlier'
+```
+
+This cloud / Linux agent **cannot** `cargo build --target aarch64-apple-darwin` — the macOS SDK is not installed. That is a real gap, not a successful cross-compile.
+
 ## Permissions (Linux)
 
 Optional; deny one and the rest still works.
@@ -238,20 +274,27 @@ Optional; deny one and the rest still works.
 - **layer-shell** — the popover. Hyprland provides it.
 - **Quickshell bar chip (`omarchy/openatat`)** — Omarchy presence. Reads `status.json` / `{"cmd":"status"}` on the trigger socket. Not Waybar.
 
+## Permissions (macOS)
+
+Optional TCC grants. Deny one and the rest still works. First-run can finish with none of them.
+
+- **Input Monitoring** — listen-only `@@` event tap. System Settings → Privacy & Security → Input Monitoring → openatatd. Missing: log a grant hint; `--demo` / `trigger.sock` stay up.
+- **Accessibility** — AX insert, @@ swallow, C10 `AXSelectedText`, `AXSecureTextField` probe every key. System Settings → Privacy & Security → Accessibility.
+- **Screen Recording** — C1 via `SCScreenshotManager` + display `SCContentFilter` (OpenAtat windows excluded). Denied: skip the tile. Not `CGWindowListCreateImage`.
+- **Finder Automation** — insertion location + selection as real POSIX paths (cwd tile + file tiles). Denied: do **not** guess from the title bar. Right-click Service waits.
+
 History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `entry`, `prompt` only). Prompts never go through our servers.
 
-## What is stubbed in P0
+## What is stubbed
 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
-- Mac overlay (`NSPanel` nonactivating), ScreenCaptureKit, AX insert.
-- Windows overlay (`WS_EX_NOACTIVATE`), WGC, UI Automation.
+- Windows overlay (`WS_EX_NOACTIVATE`), WGC, UI Automation, UIA selection, `CreateProcessW` handoff.
 - `openatat-ui` studio / first-run (Settings + history are implemented).
-- Orb, clipboard shelf, Finder/Nautilus (Nautilus has **no** selection D-Bus API — C10 is text selection, not files).
+- Orb, clipboard shelf, Nautilus (no selection D-Bus API). Finder Automation is implemented on Mac only.
 - Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10).
-- Selection bar on Mac/Win (AXSelectedText / UIA TextPattern stubs only).
-- Mac/Win terminal handoff (`NSWorkspace` / `CreateProcessW` stubs only).
+- Right-click Finder Service.
 
-C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented. C10 (Linux mouse selection bar) is implemented in `openatatd`. Terminal handoff (Super+Return) is implemented on Linux in `openatatd`. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
+C1 is grim on Linux and ScreenCaptureKit on Mac (long-edge ~1760, removable tile). C10 is mouse-up + AT-SPI on Linux and mouse-up + `AXSelectedText` on Mac. Terminal handoff is implemented on Linux and macOS. Overlay/trigger/capture/insert on Mac are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
 
 ## Crate layout
 

@@ -164,4 +164,28 @@ mod tests {
         assert_eq!(out, InsertOutcome::AbortedFocusChanged);
         assert_eq!(*ORDER.lock().unwrap(), vec!["copy"]);
     }
+
+    #[test]
+    fn mac_frontmost_and_ax_mismatch_aborts_after_clipboard() {
+        ORDER.lock().unwrap().clear();
+        let expected = FocusSnapshot {
+            pid: Some(10),
+            app_id: Some("com.apple.TextEdit".into()),
+            element_id: Some("10:AXTextField:-:0,0".into()),
+            ..FocusSnapshot::default()
+        };
+        fn pid_moved(expected: &FocusSnapshot) -> bool {
+            crate::a11y::mac_identity_changed(
+                expected.pid,
+                expected.app_id.as_deref(),
+                expected.element_id.as_deref(),
+                Some(11),
+                expected.app_id.as_deref(),
+                Some("11:AXTextField:-:0,0"),
+            )
+        }
+        let out = tab_insert_with("hi", &expected, None, mock_copy, pid_moved, mock_insert).unwrap();
+        assert_eq!(out, InsertOutcome::AbortedFocusChanged);
+        assert_eq!(*ORDER.lock().unwrap(), vec!["copy"]);
+    }
 }

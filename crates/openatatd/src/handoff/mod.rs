@@ -5,8 +5,8 @@
 //! session (no `--print` / plan-mode / one-shot flags). The prompt is data:
 //! one argv element, or a file the template names. Never spliced into `sh -c`.
 //!
-//! File-manager tiles are not implemented, so cwd is always scratch — never
-//! guessed from a window title.
+//! Finder tiles (Mac Automation) are attachments only. cwd is always scratch —
+//! never guessed from a window title.
 
 mod terminals;
 
@@ -112,7 +112,7 @@ pub fn prepare(handoff: &Handoff<'_>) -> Result<HandoffPlan> {
     let (kind, terminal_bin) = resolve_terminal(owned.config.handoff_terminal(), owned.path.as_deref())
         .ok_or_else(|| {
             Error::msg(
-                "no terminal on PATH (tried ghostty, kitty, alacritty, wezterm, foot, gnome-terminal, xterm)",
+                "no terminal on PATH (tried ghostty, kitty, iterm, alacritty, wezterm, Terminal.app, foot, gnome-terminal, xterm)",
             )
         })?;
 
@@ -443,5 +443,38 @@ mod tests {
         let xterm = TerminalKind::Xterm.wrap(Path::new("/bin/xterm"), cwd, &cli);
         assert_eq!(xterm[1], "-e");
         assert!(!xterm.iter().any(|a| a.contains("sh")));
+        let iterm = TerminalKind::Iterm.wrap(Path::new("/Applications/iTerm.app/Contents/MacOS/iTerm2"), cwd, &cli);
+        assert_eq!(iterm[0].contains("iTerm"), true);
+        assert!(!iterm.iter().any(|a| a.contains("sh -c")));
+        assert_eq!(iterm.last().map(String::as_str), Some("do it"));
+        let term = TerminalKind::TerminalApp.wrap(Path::new("/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"), cwd, &cli);
+        assert_eq!(term.len(), 1, "Terminal.app wrap must not splice the prompt: {term:?}");
+    }
+
+    #[test]
+    fn macos_bundle_paths_are_absolute_apps() {
+        assert_eq!(
+            super::terminals::macos_bundle_path("ghostty"),
+            Some("/Applications/Ghostty.app")
+        );
+        assert_eq!(
+            super::terminals::macos_bundle_path("iterm"),
+            Some("/Applications/iTerm.app")
+        );
+        assert_eq!(
+            super::terminals::macos_bundle_path("terminal"),
+            Some("/System/Applications/Utilities/Terminal.app")
+        );
+        assert!(super::terminals::macos_bundle_path("foot").is_none());
+    }
+
+    #[test]
+    fn mac_detect_order_ends_with_terminal_app() {
+        assert!(super::terminals::DETECT_ORDER_MAC.contains(&TerminalKind::Iterm));
+        assert_eq!(
+            super::terminals::DETECT_ORDER_MAC.last(),
+            Some(&TerminalKind::TerminalApp)
+        );
+        assert!(!super::terminals::DETECT_ORDER.contains(&TerminalKind::TerminalApp));
     }
 }

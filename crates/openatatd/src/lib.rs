@@ -8,12 +8,16 @@ pub mod capture;
 pub mod clipboard;
 pub mod daemon;
 pub mod error;
+pub mod finder;
 pub mod focus;
 pub mod handoff;
 pub mod history;
 pub mod insert;
+#[cfg(target_os = "macos")]
+pub mod macos_runtime;
 pub mod overlay;
 pub mod paths;
+pub mod platform;
 pub mod selection;
 pub mod session;
 pub mod trigger;
@@ -98,10 +102,9 @@ USAGE:
   openatatd --settings      Spawn openatat-ui Settings (activating; not the overlay)
   openatatd --history       Spawn openatat-ui History
 
-The product trigger is the Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
-The selection bar is a native layer-shell surface in this process (not gpui).
-The Omarchy 4 bar chip is a Quickshell plugin (omarchy/openatat), not Waybar.
-See SPEC.md §6 and ime/fcitx5-openatat/README.md.
+Linux product trigger: Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
+macOS product trigger: listen-only CGEvent tap → ImeFilter (Input Monitoring optional).
+The overlay is native (layer-shell / NSPanel), not gpui. See SPEC.md.
 "
     );
 }
@@ -171,7 +174,7 @@ pub fn run(cli: Cli) -> Result<()> {
     if let Some(selected) = cli.selection_text.clone() {
         let action = cli.action.unwrap_or(PromptAction::Ask);
         let prompt = cli.prompt.clone().unwrap_or_default();
-        if cli.headless || std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        if cli.headless || !platform::has_overlay_display() {
             let end = session::run_headless_selection(action, &selected, &prompt)?;
             eprintln!("openatatd: session ended: {end:?}");
             return Ok(());
@@ -188,7 +191,7 @@ pub fn run(cli: Cli) -> Result<()> {
             .prompt
             .or_else(|| std::env::var("OPENATAT_PROMPT").ok())
             .unwrap_or_else(|| "hello from openatat".into());
-        if cli.headless || std::env::var_os("WAYLAND_DISPLAY").is_none() {
+        if cli.headless || !platform::has_overlay_display() {
             let end = session::run_headless(source, &prompt)?;
             eprintln!("openatatd: session ended: {end:?}");
             return Ok(());

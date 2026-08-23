@@ -12,11 +12,15 @@ pub fn copy_plain_or_html(text: &str, html: Option<&str>) -> Result<()> {
     {
         return linux::copy_plain_or_html(text, html);
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        return macos::copy_plain_or_html(text, html);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = (text, html);
         Err(Error::msg(
-            "clipboard copy is Linux-only in P0 (NSPasteboard / Win32 later)",
+            "clipboard copy is Linux/macOS in this tree (Win32 later)",
         ))
     }
 }
@@ -86,5 +90,26 @@ mod linux {
         } else {
             Err(Error::msg("wl-copy exited unsuccessfully"))
         }
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod macos {
+    use super::*;
+    use objc2_app_kit::{NSPasteboard, NSPasteboardTypeHTML, NSPasteboardTypeString};
+    use objc2_foundation::NSString;
+
+    pub fn copy_plain_or_html(text: &str, html: Option<&str>) -> Result<()> {
+        let pb = unsafe { NSPasteboard::generalPasteboard() };
+        pb.clearContents();
+        let plain = NSString::from_str(text);
+        if !pb.setString_forType(&plain, unsafe { NSPasteboardTypeString }) {
+            return Err(Error::msg("NSPasteboard setString failed"));
+        }
+        if let Some(html) = html {
+            let hs = NSString::from_str(html);
+            let _ = pb.setString_forType(&hs, unsafe { NSPasteboardTypeHTML });
+        }
+        Ok(())
     }
 }

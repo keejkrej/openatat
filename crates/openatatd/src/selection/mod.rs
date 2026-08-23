@@ -111,19 +111,24 @@ pub fn search_selection(sel: &TextSelection) -> Result<()> {
 pub fn open_search(query: &str) -> Result<()> {
     let url = search_url(query);
     // Do not log `url` — it contains the ephemeral selection.
-    std::process::Command::new("xdg-open")
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(opener)
         .arg(&url)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
         .map(|_| ())
-        .map_err(|e| crate::error::Error::msg(format!("xdg-open: {e}")))
+        .map_err(|e| crate::error::Error::msg(format!("{opener}: {e}")))
 }
 
-/// Start the AT-SPI mouse-up watcher. No-op on Mac/Win (stubs).
+/// Start the mouse-up watcher. Keyboard selections never arrive here.
 pub fn spawn_watcher(tx: std::sync::mpsc::Sender<SelectionHit>) {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         let (raw_tx, raw_rx) = std::sync::mpsc::channel();
         a11y::spawn_mouse_up_watcher(raw_tx);
@@ -143,7 +148,7 @@ pub fn spawn_watcher(tx: std::sync::mpsc::Sender<SelectionHit>) {
             })
             .ok();
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = tx;
     }

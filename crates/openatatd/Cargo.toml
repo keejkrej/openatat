@@ -22,5 +22,45 @@ wayland-client = "0.31"
 wl-clipboard-rs = "0.9"
 zbus = { version = "5", default-features = false, features = ["blocking-api", "async-io"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3.2", features = [
+    "NSArray",
+    "NSString",
+    "NSData",
+    "NSURL",
+    "NSDate",
+    "NSThread",
+    "NSError",
+    "NSValue",
+    "block2",
+] }
+objc2-app-kit = { version = "0.3.2", features = [
+    "NSApplication",
+    "NSRunningApplication",
+    "NSWindow",
+    "NSPanel",
+    "NSView",
+    "NSImage",
+    "NSImageView",
+    "NSEvent",
+    "NSPasteboard",
+    "NSWorkspace",
+    "NSScreen",
+    "NSColor",
+    "NSResponder",
+    "block2",
+] }
+objc2-core-graphics = { version = "0.3.2", features = ["CGImage"] }
+objc2-screen-capture-kit = { version = "0.3.2", features = [
+    "SCScreenshotManager",
+    "SCShareableContent",
+    "SCStream",
+    "block2",
+] }
+accessibility-sys = "0.2"
+core-foundation = "0.10"
+block2 = "0.6"
+
 [dev-dependencies]
 serde_json.workspace = true
