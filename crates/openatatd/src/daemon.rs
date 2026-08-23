@@ -74,6 +74,12 @@ fn parse_request(line: &str) -> Result<DaemonRequest> {
 fn dispatch(req: DaemonRequest) -> DaemonReply {
     match req {
         DaemonRequest::Ping => DaemonReply::Ok,
+        DaemonRequest::OpenUi { page } => match crate::ui_spawn::spawn(page) {
+            Ok(()) => DaemonReply::Ok,
+            Err(e) => DaemonReply::Error {
+                message: e.to_string(),
+            },
+        },
         DaemonRequest::CommitText { .. } => {
             // The addon owns the IME filter. A lone commit without a trigger
             // is ignored in the daemon (filter lives in-process in tests).

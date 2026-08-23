@@ -260,7 +260,13 @@ fn spawn_rendered(rendered: &RenderedCommand, prompt: &str, scratch: &Path) -> R
     })?;
     if let Some(mut stdin) = child.stdin.take() {
         if rendered.pass == PromptPass::Stdin {
-            stdin.write_all(prompt.as_bytes())?;
+            // Child may exit before reading (dummy / `exit 2`). Broken pipe
+            // is not a lost prompt — we still wait on status below.
+            if let Err(e) = stdin.write_all(prompt.as_bytes()) {
+                if e.kind() != std::io::ErrorKind::BrokenPipe {
+                    return Err(e.into());
+                }
+            }
         }
     }
     let out = child.wait_with_output()?;

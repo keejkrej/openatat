@@ -6,5 +6,16 @@ license.workspace = true
 repository.workspace = true
 description = "On-demand gpui-ce shell (Settings, studio, history, first-run)"
 
+[features]
+# gpui-ce pulls a GPU / Vulkan / Wayland stack. Keep it off the default
+# `cargo test --workspace` graph so applet tests never need a display.
+# Build the real window with: cargo build -p openatat-ui --features gpui
+default = []
+gpui = ["dep:gpui"]
+
 [dependencies]
 openatat-ipc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml_edit = "0.22"
+gpui = { package = "gpui-ce", version = "0.3", optional = true }

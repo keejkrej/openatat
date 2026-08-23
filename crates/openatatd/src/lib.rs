@@ -13,15 +13,17 @@ pub mod overlay;
 pub mod paths;
 pub mod session;
 pub mod trigger;
+pub mod ui_spawn;
 
 use crate::error::Result;
-use openatat_ipc::TriggerSource;
+use openatat_ipc::{TriggerSource, UiPage};
 
 #[derive(Debug, Clone)]
 pub struct Cli {
     pub once: bool,
     pub headless: bool,
     pub trigger_client: bool,
+    pub open_ui: Option<UiPage>,
     pub prompt: Option<String>,
 }
 
@@ -31,6 +33,7 @@ impl Cli {
             once: false,
             headless: false,
             trigger_client: false,
+            open_ui: None,
             prompt: None,
         };
         for arg in args {
@@ -41,6 +44,8 @@ impl Cli {
                     cli.once = true;
                 }
                 "trigger" => cli.trigger_client = true,
+                "--settings" => cli.open_ui = Some(UiPage::Settings),
+                "--history" => cli.open_ui = Some(UiPage::History),
                 "--help" | "-h" => {
                     print_help();
                     std::process::exit(0);
@@ -69,6 +74,8 @@ USAGE:
   openatatd --demo          One interactive session, then exit
   openatatd --headless      One session without a layer surface
   openatatd trigger         Ping a running daemon (dev path, not a hotkey)
+  openatatd --settings      Spawn openatat-ui Settings (activating; not the overlay)
+  openatatd --history       Spawn openatat-ui History
 
 The product trigger is the Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 See SPEC.md §6 and ime/fcitx5-openatat/README.md.
@@ -86,10 +93,22 @@ mod tests {
         assert!(cli.once);
         assert_eq!(cli.prompt.as_deref(), Some("hi"));
         assert!(!cli.trigger_client);
+        assert!(cli.open_ui.is_none());
+    }
+
+    #[test]
+    fn parse_settings_spawn() {
+        let cli = Cli::parse(["--settings"]);
+        assert_eq!(cli.open_ui, Some(UiPage::Settings));
+        let cli = Cli::parse(["--history"]);
+        assert_eq!(cli.open_ui, Some(UiPage::History));
     }
 }
 
 pub fn run(cli: Cli) -> Result<()> {
+    if let Some(page) = cli.open_ui {
+        return ui_spawn::spawn(page);
+    }
     if cli.trigger_client {
         return daemon::send_trigger();
     }

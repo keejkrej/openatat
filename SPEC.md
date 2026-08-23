@@ -119,7 +119,7 @@ C1 is the only live capture in P0. C6–C19 exist in this inventory so later wor
 | Focus identity | `hyprctl activewindow` **address** | PID + AX window | `HWND` |
 | Clipboard | `wlr-data-control` via `wl-clipboard-rs`, `wl-copy` fallback | `NSPasteboard` | Win32 clipboard |
 | File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` |
-| Settings / studio | `openatat-ui` gpui-ce, on demand | same | same |
+| Settings / studio | `openatat-ui` gpui-ce, on demand (Settings + history now; studio later) | same | same |
 | Bar chip | Quickshell plugin later — **not** Waybar | menu extra / Orb | tray later |
 | Capture in gpui | `ScreenCaptureFrame` is a stub — do not use | stub | stub |
 
@@ -236,7 +236,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 
 ### P0 — Linux / Omarchy spike (this repo)
 
-- `SPEC.md`, workspace, `openatatd`, `openatat-ui` placeholder.
+- `SPEC.md`, workspace, `openatatd`, `openatat-ui` (Settings + history in P1).
 - IME-filter module + detection tests + dev trigger path.
 - Native layer-shell popover (software `wl_shm`). No gpui overlay.
 - C1 via grim, downscale, removable tile.
@@ -248,9 +248,9 @@ The addon (not the overlay) deletes the two characters from the client — typic
 ### P1 — Make `@@` real on Omarchy
 
 - Fcitx5 addon (`ime/fcitx5-openatat`) that implements the filter contract. **Done for the trigger path.**
-- BYO CLI runner (template, scratch dir, no shell interpolation). **Done.** Provider pick is `~/.config/openatat/agent.toml` (no Settings UI yet).
+- BYO CLI runner (template, scratch dir, no shell interpolation). **Done.** Provider pick is `~/.config/openatat/agent.toml`.
 - Preview refine (`R`). **Done.**
-- `openatat-ui` Settings + history browser (gpui-ce), spawn/quit.
+- `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio / first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
 - Selection bar start (C10) if AT-SPI selection is trustworthy.
 - Quickshell bar chip (not Waybar).
 - Handoff to a terminal.

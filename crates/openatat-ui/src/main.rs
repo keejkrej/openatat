@@ -1,26 +1,38 @@
-//! `openatat-ui` — gpui-ce process for Settings, annotation studio, history,
-//! and first-run.
+//! `openatat-ui` — on-demand gpui-ce Settings / History.
 //!
-//! P0 is a placeholder on purpose:
-//! - Idle `openatatd` must not hold a GPU / gpui window.
-//! - This binary is spawned on demand and must quit when idle.
-//! - gpui-ce 0.3 can do LayerShell / PopUp / Transparent / `focus: false`,
-//!   but that is **not** a nonactivating panel. The `@@` overlay stays in
-//!   `openatatd` (NSPanel / WS_EX_NOACTIVATE / native layer-shell).
-//!
-//! P1 will add a `gpui-ce` dependency and an empty Settings window here.
-//! We do not take that dependency in P0: gpui-ce pulls a GPU stack that
-//! this crate must not force onto `cargo test` of the applet.
+//! Spawned by `openatatd --settings` / `--history` or run directly.
+//! Quits when the last window closes. This is **not** the @@ overlay.
 
 fn main() {
-    println!(
-        "openatat-ui P0 placeholder\n\
-         \n\
-         This process is for Settings, studio/annotation, history, and first-run.\n\
-         Spawn on demand. Quit when idle. Zero GPU windows at applet idle.\n\
-         \n\
-         Overlay, Orb, trigger, insert, and capture live in openatatd.\n\
-         gpui-ce 0.3 LayerShell/PopUp is not a nonactivating panel.\n\
-         See SPEC.md (process split) and README.md.\n"
-    );
+    let cli = openatat_ui::Cli::parse(std::env::args().skip(1));
+    if cli.help {
+        print!("{}", openatat_ui::HELP);
+        return;
+    }
+
+    #[cfg(feature = "gpui")]
+    {
+        if let Err(e) = openatat_ui::ui::run(cli.page) {
+            eprintln!("openatat-ui: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    #[cfg(not(feature = "gpui"))]
+    {
+        let _ = cli;
+        eprintln!(
+            "openatat-ui: built without the `gpui` feature (keeps cargo test GPU-free).\n\
+             \n\
+             Rebuild the window:\n\
+               cargo build -p openatat-ui --features gpui\n\
+               cargo run -p openatat-ui --features gpui -- --settings\n\
+             \n\
+             Linux compile needs: libxkbcommon-dev libwayland-dev libvulkan-dev\n\
+             (and usually libfontconfig-dev). See README.md.\n\
+             Overlay / Orb / trigger stay in openatatd — never here."
+        );
+        std::process::exit(2);
+    }
 }
