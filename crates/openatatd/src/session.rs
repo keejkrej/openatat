@@ -96,6 +96,24 @@ impl Session {
         session
     }
 
+    /// C14 shelf. No C1 still. Focus is captured for paste abort.
+    pub fn begin_shelf() -> Self {
+        Self {
+            source: TriggerSource::Demo,
+            entry: EntryPoint::Orb,
+            focus: focus::snapshot(),
+            still: None,
+            prompt: String::new(),
+            preview: None,
+            selection: None,
+            placement: None,
+            finder_cwd: None,
+            finder_files: Vec::new(),
+            dropped_files: Vec::new(),
+            dropped_text: Vec::new(),
+        }
+    }
+
     pub fn begin_selection(sel: TextSelection, pointer: Option<(i32, i32)>) -> Self {
         let focus = focus::snapshot();
         let placement = Some(selection::placement_for(
@@ -144,12 +162,22 @@ pub fn run_interactive(source: TriggerSource) -> Result<SessionEnd> {
     run_overlay_session(&mut session)
 }
 
+pub(crate) fn run_overlay_from_shelf(mut session: Session) -> Result<SessionEnd> {
+    run_overlay_session(&mut session)
+}
+
 fn run_overlay_session(session: &mut Session) -> Result<SessionEnd> {
     match overlay::run(session) {
         Ok(OverlayEnd::Cancelled) => Ok(SessionEnd::Cancelled),
-        Ok(OverlayEnd::Copied) => Ok(SessionEnd::CopiedOnly),
+        Ok(OverlayEnd::Copied) | Ok(OverlayEnd::Pasted) => Ok(SessionEnd::CopiedOnly),
         Ok(OverlayEnd::Handoff) => Ok(SessionEnd::HandedOff),
         Ok(OverlayEnd::Tab) => finish_tab(&session),
+        Ok(OverlayEnd::ShelfAsk) => {
+            let mut next = Session::begin_orb_click();
+            next.dropped_text = session.dropped_text.clone();
+            next.focus = session.focus.clone();
+            run_overlay_session(&mut next)
+        }
         Err(e) if e.is_wayland_connect() => {
             eprintln!("openatatd: overlay unavailable ({e}); headless fallback");
             run_headless_on(session.clone())
@@ -162,9 +190,10 @@ pub fn run_selection_bar(sel: TextSelection, pointer: Option<(i32, i32)>) -> Res
     let mut session = Session::begin_selection(sel, pointer);
     match overlay::run_bar(&mut session) {
         Ok(OverlayEnd::Cancelled) => Ok(SessionEnd::Cancelled),
-        Ok(OverlayEnd::Copied) => Ok(SessionEnd::CopiedOnly),
+        Ok(OverlayEnd::Copied) | Ok(OverlayEnd::Pasted) => Ok(SessionEnd::CopiedOnly),
         Ok(OverlayEnd::Handoff) => Ok(SessionEnd::HandedOff),
         Ok(OverlayEnd::Tab) => finish_tab(&session),
+        Ok(OverlayEnd::ShelfAsk) => Ok(SessionEnd::Cancelled),
         Err(e) if e.is_wayland_connect() => {
             eprintln!("openatatd: selection bar unavailable ({e})");
             Ok(SessionEnd::Cancelled)
@@ -299,6 +328,14 @@ mod tests {
         let hist = std::fs::read_to_string(&hist_path).unwrap();
         assert!(hist.contains("friendlier"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn shelf_session_skips_c1_and_does_not_touch_history() {
+        let s = Session::begin_shelf();
+        assert!(s.still.is_none());
+        assert!(s.dropped_text.is_empty());
+        assert!(!crate::orb::auto_attach_c1(s.entry));
     }
 
     #[test]

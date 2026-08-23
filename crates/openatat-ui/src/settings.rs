@@ -13,6 +13,8 @@ pub struct AgentEdit {
     pub provider: String,
     /// Empty means “no argv override” — daemon uses the provider default.
     pub argv: Vec<String>,
+    /// C14: record new clipboard copies. Default on.
+    pub clipboard_shelf: bool,
 }
 
 impl Default for AgentEdit {
@@ -20,6 +22,7 @@ impl Default for AgentEdit {
         Self {
             provider: "auto".into(),
             argv: Vec::new(),
+            clipboard_shelf: true,
         }
     }
 }
@@ -72,7 +75,17 @@ pub fn parse_agent_toml(raw: &str) -> Option<AgentEdit> {
             }
         }
     }
-    Some(AgentEdit { provider, argv })
+    let clipboard_shelf = doc
+        .get("clipboard")
+        .and_then(|i| i.get("shelf"))
+        .and_then(|i| i.as_bool())
+        .unwrap_or(true);
+
+    Some(AgentEdit {
+        provider,
+        argv,
+        clipboard_shelf,
+    })
 }
 
 fn array_of_strings(item: Option<&Item>) -> Vec<String> {
@@ -125,6 +138,8 @@ pub fn save_to(path: &Path, edit: &AgentEdit) -> Result<(), String> {
         }
         doc["argv"] = Item::Value(Value::Array(arr));
     }
+
+    doc["clipboard"]["shelf"] = toml_edit::value(edit.clipboard_shelf);
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -201,6 +216,7 @@ note = "leave this"
         let edit = AgentEdit {
             provider: "claude".into(),
             argv: vec!["claude".into(), "--print".into(), "{prompt}".into()],
+            clipboard_shelf: true,
         };
         save_to(&path, &edit).unwrap();
         let raw = std::fs::read_to_string(&path).unwrap();
@@ -225,6 +241,7 @@ note = "leave this"
             &AgentEdit {
                 provider: "auto".into(),
                 argv: vec![],
+                clipboard_shelf: true,
             },
         )
         .unwrap();
@@ -254,6 +271,7 @@ bin = "my-agent"
         let mut edit = AgentEdit {
             provider: "auto".into(),
             argv: vec![],
+            clipboard_shelf: true,
         };
         apply_provider_pick(&mut edit, "grok");
         assert_eq!(edit.provider, "grok");
@@ -263,5 +281,37 @@ bin = "my-agent"
         edit.argv = vec!["my".into(), "custom".into(), "{prompt}".into()];
         apply_provider_pick(&mut edit, "claude");
         assert_eq!(edit.argv, ["my", "custom", "{prompt}"]);
+    }
+
+    #[test]
+    fn clipboard_shelf_roundtrip_preserves_other_keys() {
+        let path = tmp("shelf");
+        std::fs::write(
+            &path,
+            r#"
+provider = "auto"
+
+[clipboard]
+shelf = false
+note = "keep"
+"#,
+        )
+        .unwrap();
+        let loaded = load_from(&path).unwrap();
+        assert!(!loaded.clipboard_shelf);
+        save_to(
+            &path,
+            &AgentEdit {
+                provider: "auto".into(),
+                argv: vec![],
+                clipboard_shelf: true,
+            },
+        )
+        .unwrap();
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("shelf = true"), "{raw}");
+        assert!(raw.contains("note = \"keep\""), "{raw}");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(path.parent().unwrap());
     }
 }

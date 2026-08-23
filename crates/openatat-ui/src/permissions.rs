@@ -22,8 +22,8 @@ pub const LINUX_GRANTS: &[PermissionGrant] = &[
     },
     PermissionGrant {
         name: "clipboard",
-        unlocks: "Clipboard-first insert (`Tab` copies before AT-SPI).",
-        how: "`wlr-data-control` (via `wl-clipboard-rs`) or the `wl-copy` binary.",
+        unlocks: "Clipboard-first insert (`Tab` copies before AT-SPI) and C14 shelf watch.",
+        how: "`wlr-data-control` (via `wl-clipboard-rs`) or the `wl-copy` binary. Shelf history stays on this machine.",
     },
     PermissionGrant {
         name: "AT-SPI",

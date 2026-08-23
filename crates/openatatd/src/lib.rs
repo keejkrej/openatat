@@ -1,6 +1,6 @@
 //! Always-on native applet. Owns the overlay, Orb, trigger, capture, insert,
-//! and the C10 selection bar. Idle maps the Orb (not the overlay) and starts
-//! no gpui window.
+//! the C10 selection bar, and the C14 clipboard watch + shelf. Idle maps the
+//! Orb (not the overlay) and starts no gpui window.
 
 pub mod a11y;
 pub mod agent;
@@ -21,6 +21,7 @@ pub mod paths;
 pub mod platform;
 pub mod selection;
 pub mod session;
+pub mod shelf;
 pub mod studio_attach;
 pub mod trigger;
 pub mod ui_spawn;
@@ -42,6 +43,7 @@ pub struct Cli {
     pub status_client: bool,
     pub hide_orb_client: bool,
     pub show_orb_client: bool,
+    pub shelf_client: bool,
     pub orb_click: bool,
     pub open_ui: Option<UiPage>,
     pub ui_image: Option<PathBuf>,
@@ -60,6 +62,7 @@ impl Cli {
             status_client: false,
             hide_orb_client: false,
             show_orb_client: false,
+            shelf_client: false,
             orb_click: false,
             open_ui: None,
             ui_image: None,
@@ -86,6 +89,7 @@ impl Cli {
                 "status" | "ping" => cli.status_client = true,
                 "hide-orb" => cli.hide_orb_client = true,
                 "show-orb" => cli.show_orb_client = true,
+                "--shelf" | "shelf" => cli.shelf_client = true,
                 "--orb-click" => cli.orb_click = true,
                 "--settings" => cli.open_ui = Some(UiPage::Settings),
                 "--history" => cli.open_ui = Some(UiPage::History),
@@ -134,6 +138,8 @@ USAGE:
   openatatd --history       Spawn openatat-ui History
   openatatd --studio --image <path>
                             Spawn openatat-ui C17 studio (local PNG/JPEG)
+  openatatd --shelf         Open the C14 clipboard shelf (IPC to a running daemon,
+                            or in-process if none). Not a @@ summon.
 
 Linux product trigger: Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 macOS product trigger: listen-only CGEvent tap → ImeFilter (Input Monitoring optional).
@@ -203,6 +209,10 @@ mod tests {
         assert_eq!(cli.open_ui, Some(UiPage::Settings));
         let cli = Cli::parse(["--history"]);
         assert_eq!(cli.open_ui, Some(UiPage::History));
+        let cli = Cli::parse(["--shelf"]);
+        assert!(cli.shelf_client);
+        let cli = Cli::parse(["shelf"]);
+        assert!(cli.shelf_client);
         let cli = Cli::parse(["--studio", "--image", "/tmp/shot.png"]);
         assert_eq!(cli.open_ui, Some(UiPage::Studio));
         assert_eq!(
@@ -230,6 +240,18 @@ pub fn run(cli: Cli) -> Result<()> {
     }
     if cli.show_orb_client {
         return daemon::send_show_orb();
+    }
+    if cli.shelf_client {
+        return match daemon::send_shelf() {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                eprintln!("openatatd: no daemon for shelf ({e}); opening here");
+                if cli.headless || !platform::has_overlay_display() {
+                    return crate::shelf::run_headless_shelf().map(|_| ());
+                }
+                crate::shelf::run_shelf().map(|_| ())
+            }
+        };
     }
     if let Some(selected) = cli.selection_text.clone() {
         let action = cli.action.unwrap_or(PromptAction::Ask);

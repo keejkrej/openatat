@@ -193,6 +193,11 @@ fn place(w: u32, h: u32, kind: OverlayKind) -> (i32, i32) {
             }
             (pt.x.saturating_add(12), pt.y.saturating_add(16).min(sy + sh - 48))
         }
+        OverlayKind::Shelf => {
+            let x = sx + ((sw - w as i32) / 2).max(24);
+            let y = sy + sh - h as i32 - 24;
+            (x, y)
+        }
     }
 }
 
@@ -325,6 +330,12 @@ fn map_vk(vk: u32) -> (OverlayKey, Option<String>) {
     }
     if vk == u32::from(VK_BACK.0) {
         return (OverlayKey::Backspace, None);
+    }
+    if vk == 0x26 {
+        return (OverlayKey::Up, None);
+    }
+    if vk == 0x28 {
+        return (OverlayKey::Down, None);
     }
     if vk == 0x52 {
         // R

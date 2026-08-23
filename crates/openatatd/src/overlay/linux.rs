@@ -29,7 +29,8 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, QueueHandle};
 
-use super::draw::{self, Frame, Phase, BAR_H, BAR_W, POPOVER_H, POPOVER_W};
+use super::controller::{OverlayController, OverlayEffect, OverlayKey};
+use super::draw::{self, Frame, Phase, BAR_H, BAR_W, POPOVER_H, POPOVER_W, SHELF_H, SHELF_W};
 use super::{OverlayEnd, OverlayKind};
 use crate::a11y::TextSelection;
 use crate::agent::{self, Attachment, Launch, RefineSession};
@@ -70,14 +71,24 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
             layer.set_anchor(Anchor::TOP);
             (POPOVER_W, POPOVER_H, 80, 0)
         }
+        OverlayKind::Shelf => {
+            // Slides up from the bottom. Same nonactivating layer-shell class.
+            layer.set_anchor(Anchor::BOTTOM);
+            (SHELF_W, SHELF_H, 0, 0)
+        }
     };
-    layer.set_margin(top, 0, 0, left);
+    let (margin_top, margin_right, margin_bottom, margin_left) = match kind {
+        OverlayKind::Shelf => (0, 0, 24, 0),
+        OverlayKind::SelectionBar => (top, 0, 0, left),
+        OverlayKind::Prompt => (top, 0, 0, left),
+    };
+    layer.set_margin(margin_top, margin_right, margin_bottom, margin_left);
     layer.set_exclusive_zone(0);
     layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
     layer.set_size(init_w, init_h);
     layer.commit();
 
-    let pool = SlotPool::new((POPOVER_W * POPOVER_H * 4) as usize, &shm)
+    let pool = SlotPool::new((SHELF_W * SHELF_H * 4) as usize, &shm)
         .map_err(|e| Error::msg(format!("wl_shm pool: {e}")))?;
 
     let thumb = session
@@ -106,6 +117,7 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         phase: match kind {
             OverlayKind::SelectionBar => Phase::Bar,
             OverlayKind::Prompt => Phase::Prompt,
+            OverlayKind::Shelf => Phase::Shelf,
         },
         selection: session.selection.clone(),
         prompt_action: None,
@@ -120,6 +132,8 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         finder_cwd: session.finder_cwd.clone(),
         finder_files: session.finder_files.clone(),
         studio: StudioAttach::default(),
+        ctl: matches!(kind, OverlayKind::Shelf)
+            .then(|| OverlayController::from_session(session, kind)),
     };
 
     while overlay.end.is_none() {
@@ -135,6 +149,10 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     crate::studio_attach::apply_still_bytes(overlay.has_tile, overlay.still_png, session);
     session.dropped_files = overlay.dropped_files;
     session.dropped_text = overlay.dropped_text;
+    if let Some(ctl) = overlay.ctl {
+        ctl.write_back(session);
+        return Ok(ctl.end.unwrap_or(OverlayEnd::Cancelled));
+    }
     Ok(overlay.end.unwrap_or(OverlayEnd::Cancelled))
 }
 
@@ -170,6 +188,7 @@ struct Overlay {
     finder_cwd: Option<std::path::PathBuf>,
     finder_files: Vec<std::path::PathBuf>,
     studio: StudioAttach,
+    ctl: Option<OverlayController>,
 }
 
 impl Overlay {
@@ -198,6 +217,7 @@ impl Overlay {
             Phase::Running => "scratch cwd · prompt passed as data",
             Phase::Preview => "result is not in your document until Tab · Super+Return handoff",
             Phase::Refine => "same attachments · new result replaces the old",
+            Phase::Shelf => "clipboard shelf · Return pastes · Super+Return tile",
         };
         let prompt = if self.phase == Phase::Refine {
             self.refine.clone()
@@ -215,6 +235,56 @@ impl Overlay {
             preview: self.preview.clone(),
             has_tile: self.has_tile,
             status,
+            shelf_query: String::new(),
+            shelf_lines: Vec::new(),
+            shelf_sel: 0,
+        }
+    }
+
+    fn apply_ctl(&mut self, fx: Vec<OverlayEffect>, qh: &QueueHandle<Self>) {
+        let Some(ctl) = self.ctl.as_mut() else {
+            return;
+        };
+        for e in fx {
+            match e {
+                OverlayEffect::Redraw => self.dirty = true,
+                OverlayEffect::Resize { w, h } => {
+                    self.width = w;
+                    self.height = h;
+                    ctl.width = w;
+                    ctl.height = h;
+                    self.layer.set_size(w, h);
+                    self.layer.commit();
+                }
+            }
+        }
+        if ctl.end.is_some() {
+            self.end = ctl.end;
+        }
+        if ctl.dirty || self.dirty {
+            ctl.dirty = false;
+            self.dirty = true;
+            self.draw(qh);
+        }
+    }
+
+    fn map_key(&self, event: &KeyEvent) -> OverlayKey {
+        match event.keysym {
+            Keysym::Escape => OverlayKey::Escape,
+            Keysym::Return | Keysym::KP_Enter => OverlayKey::Return {
+                meta: self.mods.logo,
+            },
+            Keysym::Tab => OverlayKey::Tab,
+            Keysym::BackSpace => OverlayKey::Backspace,
+            Keysym::Up | Keysym::KP_Up => OverlayKey::Up,
+            Keysym::Down | Keysym::KP_Down => OverlayKey::Down,
+            Keysym::r | Keysym::R => OverlayKey::R,
+            Keysym::_1 => OverlayKey::Digit(1),
+            Keysym::_2 => OverlayKey::Digit(2),
+            Keysym::_3 => OverlayKey::Digit(3),
+            Keysym::_4 => OverlayKey::Digit(4),
+            Keysym::_5 => OverlayKey::Digit(5),
+            _ => OverlayKey::Text,
         }
     }
 
@@ -223,7 +293,12 @@ impl Overlay {
         let height = self.height.max(1);
         let stride = width as i32 * 4;
         let thumb = self.thumb.as_ref().map(|(w, h, p)| (*w, *h, p.as_slice()));
-        let pixels = draw::render(width, height, &self.ui_frame(), thumb);
+        let frame = if let Some(ctl) = self.ctl.as_ref() {
+            ctl.ui_frame()
+        } else {
+            self.ui_frame()
+        };
+        let pixels = draw::render(width, height, &frame, thumb);
 
         let (buffer, canvas) = match self.pool.create_buffer(
             width as i32,
@@ -250,6 +325,17 @@ impl Overlay {
 
     fn handle_key(&mut self, event: KeyEvent, qh: &QueueHandle<Self>) {
         self.poll_studio(qh);
+        if self.ctl.is_some() {
+            let key = self.map_key(&event);
+            let text = event.utf8.clone();
+            let fx = self
+                .ctl
+                .as_mut()
+                .unwrap()
+                .handle_key(key, text.as_deref());
+            self.apply_ctl(fx, qh);
+            return;
+        }
         match event.keysym {
             Keysym::Escape => {
                 self.end = Some(OverlayEnd::Cancelled);
@@ -599,15 +685,15 @@ impl LayerShellHandler for Overlay {
         configure: LayerSurfaceConfigure,
         _: u32,
     ) {
-        let fallback_w = if self.phase == Phase::Bar {
-            BAR_W
-        } else {
-            POPOVER_W
+        let fallback_w = match self.phase {
+            Phase::Bar => BAR_W,
+            Phase::Shelf => SHELF_W,
+            _ => POPOVER_W,
         };
-        let fallback_h = if self.phase == Phase::Bar {
-            BAR_H
-        } else {
-            POPOVER_H
+        let fallback_h = match self.phase {
+            Phase::Bar => BAR_H,
+            Phase::Shelf => SHELF_H,
+            _ => POPOVER_H,
         };
         self.width = NonZeroU32::new(configure.new_size.0).map_or(fallback_w, NonZeroU32::get);
         self.height = NonZeroU32::new(configure.new_size.1).map_or(fallback_h, NonZeroU32::get);
@@ -750,6 +836,11 @@ impl PointerHandler for Overlay {
                     continue;
                 }
                 let (x, y) = event.position;
+                if self.ctl.is_some() {
+                    let fx = self.ctl.as_mut().unwrap().handle_click(x, y);
+                    self.apply_ctl(fx, qh);
+                    continue;
+                }
                 if self.phase == Phase::Bar {
                     if let Some(hit) = draw::hit_bar(x, y, self.width) {
                         self.on_bar(hit, qh);

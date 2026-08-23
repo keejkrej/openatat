@@ -28,6 +28,9 @@ use crate::paths::agent_config_path;
 ///
 /// # [handoff]
 /// # terminal = "kitty"   # or ghostty / alacritty / wezterm / foot / gnome-terminal / xterm
+///
+/// # [clipboard]
+/// # shelf = true   # default on. false stops recording; existing items stay.
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct AgentConfig {
@@ -35,12 +38,19 @@ pub struct AgentConfig {
     pub argv: Option<Vec<String>>,
     pub custom: Option<CustomCli>,
     pub handoff: Option<HandoffSection>,
+    pub clipboard: Option<ClipboardSection>,
 }
 
 /// Super+Return terminal pick. Omarchy auto-detect if omitted.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct HandoffSection {
     pub terminal: Option<String>,
+}
+
+/// C14 shelf recording. Default on when omitted.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct ClipboardSection {
+    pub shelf: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -86,6 +96,11 @@ impl AgentConfig {
             .and_then(|h| h.terminal.as_deref())
             .map(str::trim)
             .filter(|s| !s.is_empty())
+    }
+
+    /// C14: record new copies. Default **on**. Existing items stay when off.
+    pub fn clipboard_shelf_enabled(&self) -> bool {
+        crate::shelf::recording_from_toml(self.clipboard.as_ref().and_then(|c| c.shelf))
     }
 }
 
@@ -154,6 +169,27 @@ terminal = "kitty"
         .unwrap();
         let cfg = load_from(&path).unwrap();
         assert_eq!(cfg.handoff_terminal(), Some("kitty"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn clipboard_shelf_defaults_on_and_can_turn_off() {
+        assert!(AgentConfig::default().clipboard_shelf_enabled());
+        let dir = std::env::temp_dir().join(format!("openatat-cfg-clip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("agent.toml");
+        std::fs::write(
+            &path,
+            r#"
+provider = "auto"
+
+[clipboard]
+shelf = false
+"#,
+        )
+        .unwrap();
+        let cfg = load_from(&path).unwrap();
+        assert!(!cfg.clipboard_shelf_enabled());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -46,6 +46,18 @@ pub fn is_session_busy() -> bool {
 }
 
 /// Product `@@` path on macOS. Called from the listen-only tap on the main thread.
+/// C14 clipboard shelf. Not a `@@` summon. Same session lock as the overlay.
+pub fn summon_shelf() {
+    if !try_enter() {
+        return;
+    }
+    match crate::shelf::run_shelf() {
+        Ok(_) => set_last_error(None),
+        Err(e) => set_last_error(Some(e.to_string())),
+    }
+    leave();
+}
+
 pub fn summon_from_ime() {
     if !try_enter() {
         return;
@@ -60,6 +72,7 @@ pub fn summon_from_ime() {
 pub(crate) fn start_presence_and_selection() {
     publish_presence();
     start_selection_watcher();
+    crate::shelf::spawn_watcher();
 }
 
 fn set_last_error(msg: Option<String>) {
@@ -291,6 +304,9 @@ fn parse_request(line: &str) -> Result<DaemonRequest> {
     if line == "show-orb" {
         return Ok(DaemonRequest::ShowOrb);
     }
+    if line == "shelf" {
+        return Ok(DaemonRequest::Shelf);
+    }
     DaemonRequest::decode(line).map_err(Error::from)
 }
 
@@ -336,6 +352,24 @@ fn dispatch(req: DaemonRequest) -> DaemonReply {
         DaemonRequest::ShowOrb => {
             crate::orb::show();
             DaemonReply::Ok
+        }
+        DaemonRequest::Shelf => {
+            if !try_enter() {
+                return DaemonReply::Busy;
+            }
+            let reply = match crate::shelf::run_shelf() {
+                Ok(_) => {
+                    set_last_error(None);
+                    DaemonReply::Ok
+                }
+                Err(e) => {
+                    let message = e.to_string();
+                    set_last_error(Some(message.clone()));
+                    DaemonReply::Error { message }
+                }
+            };
+            leave();
+            reply
         }
         DaemonRequest::SelectionProbe => {
             if !try_enter() {
@@ -483,6 +517,10 @@ pub fn send_show_orb() -> Result<()> {
     send_line(&DaemonRequest::ShowOrb)
 }
 
+pub fn send_shelf() -> Result<()> {
+    send_line(&DaemonRequest::Shelf)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,6 +552,11 @@ mod tests {
         );
         assert_eq!(parse_request("hide-orb\n").unwrap(), DaemonRequest::HideOrb);
         assert_eq!(parse_request("show-orb\n").unwrap(), DaemonRequest::ShowOrb);
+        assert_eq!(parse_request("shelf\n").unwrap(), DaemonRequest::Shelf);
+        assert_eq!(
+            parse_request(r#"{"cmd":"shelf"}"#).unwrap(),
+            DaemonRequest::Shelf
+        );
         assert_eq!(
             parse_request(r#"{"cmd":"hide-orb"}"#).unwrap(),
             DaemonRequest::HideOrb
