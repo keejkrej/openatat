@@ -50,6 +50,11 @@ pub fn cache_dir() -> PathBuf {
     home_dir().join(".cache/openatat")
 }
 
+/// C7 recordings: `~/.cache/openatat/record/<id>.mp4` until Save.
+pub fn record_dir() -> PathBuf {
+    cache_dir().join("record")
+}
+
 /// `$XDG_RUNTIME_DIR/openatat` (socket lives here).
 pub fn runtime_dir() -> PathBuf {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
@@ -138,6 +143,10 @@ mod tests {
         assert_eq!(
             cache_dir(),
             PathBuf::from("/tmp/openatat-test-cache/openatat")
+        );
+        assert_eq!(
+            record_dir(),
+            PathBuf::from("/tmp/openatat-test-cache/openatat/record")
         );
         match old_cfg {
             Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),

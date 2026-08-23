@@ -128,6 +128,11 @@ pub(crate) fn windows_picker_wants_keys() -> bool {
 }
 
 #[cfg(target_os = "windows")]
+pub(crate) fn windows_picker_hwnd() -> Option<isize> {
+    windows::picker_hwnd_pub()
+}
+
+#[cfg(target_os = "windows")]
 pub(crate) fn windows_feed_picker_vk(vk: u32) {
     windows::feed_vk(vk)
 }

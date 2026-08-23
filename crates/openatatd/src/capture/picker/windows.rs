@@ -75,6 +75,10 @@ fn picker_hwnd() -> Option<isize> {
     (v != 0).then_some(v)
 }
 
+pub(crate) fn picker_hwnd_pub() -> Option<isize> {
+    picker_hwnd()
+}
+
 pub fn pick_region() -> Result<Option<PickedRegion>> {
     crate::windows_runtime::ensure_com();
     let (ox, oy, w, h) = monitor_under_cursor();

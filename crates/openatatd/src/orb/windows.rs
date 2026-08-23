@@ -187,6 +187,11 @@ fn hwnd() -> Option<HWND> {
     (v != 0).then_some(HWND(v as *mut _))
 }
 
+pub(crate) fn orb_hwnd() -> Option<isize> {
+    let v = ORB_HWND.load(Ordering::SeqCst);
+    (v != 0).then_some(v)
+}
+
 unsafe extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_MOUSEACTIVATE => LRESULT(MA_NOACTIVATE as isize),

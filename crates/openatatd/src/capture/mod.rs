@@ -1,10 +1,10 @@
 //! Capture inventory C1–C19 lives in SPEC.md.
 //!
-//! Live here: C1 auto-still, **C2 area**, **C4 explicit display**.
+//! Live here: C1 auto-still, **C2 area**, **C4 explicit display**, **C7 record**.
 //!
 //! Not in this crate (stubs / comments only):
 //!   C3 window, C5 all-in-one,
-//!   C6 scrolling, C7 video, C8 GIF, C9 OCR,
+//!   C6 scrolling, C8 GIF, C9 OCR,
 //!   C10 selection bar lives in `crate::selection` (native layer-shell, not here),
 //!   C11–C12 file manager (Nautilus has no selection D-Bus API),
 //!   C13 current clipboard tile (can wait),
@@ -15,8 +15,8 @@
 //!   C18 video trim, C19 record bezel.
 //!
 //! gpui `ScreenCaptureFrame` is a stub — capture stays in this daemon.
-//! Overlay / picker are never gpui. Portal Screenshot choosers stay illegal
-//! on the C1 path.
+//! Overlay / picker / record chrome are never gpui. Portal Screenshot
+//! choosers stay illegal on the C1 path.
 
 use openatat_ipc::CaptureKind;
 
@@ -25,6 +25,7 @@ use crate::session::SessionEnd;
 
 pub mod picker;
 pub mod policy;
+pub mod record;
 
 /// Long-edge target after C1 downscale (SPEC: ~1600–1920).
 pub const LONG_EDGE: u32 = 1760;
@@ -157,20 +158,23 @@ fn capture_region(region: &picker::PickedRegion) -> Result<Still> {
     }
 }
 
-/// C2/C4 entry. Successful still → Orb-click session + that tile only.
-/// Cancelled picker → no overlay.
+/// C2/C4/C7 entry. Successful still or recording → Orb-click session + that
+/// tile only. Cancelled picker → no overlay. No second auto C1.
 pub fn run_capture(kind: CaptureKind) -> Result<SessionEnd> {
-    let still = match kind {
-        CaptureKind::Display => capture_display_still()?,
+    match kind {
+        CaptureKind::Display => {
+            let still = capture_display_still()?;
+            crate::session::run_explicit_still(still)
+        }
         CaptureKind::Area => match capture_area_still()? {
-            Some(s) => s,
-            None => return Ok(SessionEnd::Cancelled),
+            Some(s) => crate::session::run_explicit_still(s),
+            None => Ok(SessionEnd::Cancelled),
         },
-    };
-    crate::session::run_explicit_still(still)
+        CaptureKind::Record => record::run_record(),
+    }
 }
 
-/// Headless C2/C4. Area cannot rubber-band without a compositor.
+/// Headless C2/C4/C7. Area / record cannot rubber-band without a compositor.
 pub fn run_headless_capture(kind: CaptureKind) -> Result<SessionEnd> {
     match kind {
         CaptureKind::Display => {
@@ -180,9 +184,9 @@ pub fn run_headless_capture(kind: CaptureKind) -> Result<SessionEnd> {
                 .unwrap_or_else(|_| "hello from openatat".into());
             crate::session::run_headless_session(session)
         }
-        CaptureKind::Area => {
+        CaptureKind::Area | CaptureKind::Record => {
             eprintln!(
-                "openatatd: --headless --capture area cancelled (no native picker). \
+                "openatatd: --headless --capture area|record cancelled (no native picker). \
                  Use a compositor, or slurp fallback when the picker cannot map."
             );
             Ok(SessionEnd::Cancelled)
@@ -616,6 +620,11 @@ mod tests {
             include_str!("picker/linux.rs"),
             include_str!("picker/macos.rs"),
             include_str!("picker/windows.rs"),
+            include_str!("record/mod.rs"),
+            include_str!("record/bar.rs"),
+            include_str!("record/bar_linux.rs"),
+            include_str!("record/macos.rs"),
+            include_str!("record/windows.rs"),
         ];
         for src in overlay {
             let gpui = ["gpui", "::"].concat();

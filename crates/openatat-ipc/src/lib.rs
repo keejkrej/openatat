@@ -104,13 +104,15 @@ pub enum DaemonRequest {
     ShowOrb,
     /// Open the C14 clipboard shelf. Not a `@@` summon.
     Shelf,
-    /// C2 area or C4 display still. Not a `@@` summon and not a global hotkey.
+    /// C2 area, C4 display still, or C7 region record. Not a `@@` summon
+    /// and not a global hotkey.
     Capture {
         kind: CaptureKind,
     },
 }
 
-/// Explicit still. C2 is an interactive region; C4 is one output.
+/// Explicit capture. C2 is an interactive region still; C4 is one output
+/// still; C7 is a region recording.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CaptureKind {
@@ -118,6 +120,8 @@ pub enum CaptureKind {
     Area,
     /// Atat `⌘⇧3`: one still of the output under the pointer / focused window.
     Display,
+    /// Atat `⌘⇧5` record: rubber-band, record, Stop writes a local mp4 tile.
+    Record,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -308,6 +312,12 @@ mod tests {
         let line = display.encode().unwrap();
         assert_eq!(DaemonRequest::decode(&line).unwrap(), display);
         assert_eq!(line, r#"{"cmd":"capture","kind":"display"}"#);
+        let record = DaemonRequest::Capture {
+            kind: CaptureKind::Record,
+        };
+        let line = record.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), record);
+        assert_eq!(line, r#"{"cmd":"capture","kind":"record"}"#);
     }
 
     #[test]

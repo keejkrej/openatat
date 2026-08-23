@@ -58,7 +58,8 @@ pub fn summon_shelf() {
     leave();
 }
 
-/// C2 / C4 explicit still. Not a `@@` summon. Same session lock as the overlay.
+/// C2 / C4 explicit still or C7 record. Not a `@@` summon. Same session
+/// lock as the overlay.
 pub fn summon_capture(kind: CaptureKind) {
     if !try_enter() {
         return;
@@ -327,6 +328,11 @@ fn parse_request(line: &str) -> Result<DaemonRequest> {
     if line == "capture-display" {
         return Ok(DaemonRequest::Capture {
             kind: CaptureKind::Display,
+        });
+    }
+    if line == "capture-record" {
+        return Ok(DaemonRequest::Capture {
+            kind: CaptureKind::Record,
         });
     }
     DaemonRequest::decode(line).map_err(Error::from)
@@ -617,6 +623,18 @@ mod tests {
             parse_request("capture-area\n").unwrap(),
             DaemonRequest::Capture {
                 kind: CaptureKind::Area
+            }
+        );
+        assert_eq!(
+            parse_request(r#"{"cmd":"capture","kind":"record"}"#).unwrap(),
+            DaemonRequest::Capture {
+                kind: CaptureKind::Record
+            }
+        );
+        assert_eq!(
+            parse_request("capture-record\n").unwrap(),
+            DaemonRequest::Capture {
+                kind: CaptureKind::Record
             }
         );
         assert_eq!(

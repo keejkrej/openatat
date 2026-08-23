@@ -126,6 +126,11 @@ pub(crate) fn windows_pump() {
     windows::pump();
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) fn windows_orb_hwnd() -> Option<isize> {
+    windows::orb_hwnd()
+}
+
 pub(crate) fn spawn_orb_drop(drops: Vec<OrbDrop>) {
     std::thread::Builder::new()
         .name("openatat-orb-drop".into())

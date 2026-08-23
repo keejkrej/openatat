@@ -144,6 +144,11 @@ unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: WPARAM, lparam: LP
         return LRESULT(1);
     }
 
+    if crate::capture::record::windows_bar_wants_keys() {
+        crate::capture::record::windows_feed_bar_vk(vk);
+        return LRESULT(1);
+    }
+
     if crate::overlay::windows_overlay_wants_keys() {
         crate::overlay::windows_feed_vk(vk, info.scanCode);
         // Swallow so the client does not see overlay keystrokes.
@@ -183,6 +188,7 @@ fn capture_kind_from_vk(vk: u32) -> Option<openatat_ipc::CaptureKind> {
     match vk {
         0x33 => Some(openatat_ipc::CaptureKind::Display), // '3'
         0x34 => Some(openatat_ipc::CaptureKind::Area),    // '4'
+        0x35 => Some(openatat_ipc::CaptureKind::Record),  // '5'
         _ => None,
     }
 }
@@ -196,7 +202,12 @@ fn is_capture_chord(vk: u32) -> bool {
         let ctrl = GetAsyncKeyState(i32::from(VK_CONTROL.0)) < 0;
         let alt = GetAsyncKeyState(i32::from(VK_MENU.0)) < 0;
         let win = crate::windows_runtime::win_logo_down();
-        let key = if vk == 0x33 { '3' } else { '4' };
+        let key = match vk {
+            0x33 => '3',
+            0x34 => '4',
+            0x35 => '5',
+            _ => return false,
+        };
         crate::capture::policy::is_capture_shortcut(
             crate::capture::policy::CaptureOs::Windows,
             kind,
