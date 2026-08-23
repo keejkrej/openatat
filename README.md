@@ -19,7 +19,7 @@ P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / T
 - **Mac (later):** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel`.
 - **Windows (later):** `WS_EX_NOACTIVATE`.
 
-Omarchy 4 is Hyprland + Quickshell (Waybar is gone). Do not add Waybar modules. A Quickshell plugin is only the bar chip, later.
+Omarchy 4 is Hyprland + Quickshell (Waybar is gone). Do not add Waybar modules. The Omarchy presence path is the Quickshell bar chip in `omarchy/openatat/` (`openatat.chip`). It is not a second overlay and not the Orb.
 
 ## How to run the Linux spike (Hyprland)
 
@@ -54,6 +54,14 @@ cargo run -p openatatd -- trigger
 ```
 
 The daemon listens on `$XDG_RUNTIME_DIR/openatat/trigger.sock`. The Fcitx5 addon sends the same JSON (`source: ime`). A Hyprland bind is not the product path — see SPEC.md §6.
+
+Presence for the Omarchy bar chip (does not summon `@@`):
+
+```bash
+# same socket; also written to $XDG_RUNTIME_DIR/openatat/status.json
+# {"cmd":"status"}  →  {"status":"idle"} | {"status":"busy"} | {"status":"error","message":"…"}
+cargo run -p openatatd -- status
+```
 
 ### Selection bar (C10)
 
@@ -197,6 +205,27 @@ The Permissions tab names what each optional Linux grant unlocks (grim, hyprctl,
 
 gpui-ce 0.3 on Linux needs compile-time headers that this cloud VM often lacks: `libxkbcommon-dev`, `libwayland-dev`, `libvulkan-dev`, and usually `libfontconfig-dev`. Runtime still needs Vulkan + a Wayland or X11 display. Missing those libs is a real build gap — do not treat a header-less compile as success.
 
+### Omarchy 4 Quickshell bar chip
+
+Omarchy 4’s shell is Quickshell (`omarchy-shell`). The presence chip is a third-party **bar-widget** plugin, not a Waybar module. Copy-paste on Omarchy:
+
+```bash
+# from a clone of this repo
+mkdir -p ~/.config/omarchy/plugins
+rm -rf ~/.config/omarchy/plugins/openatat.chip
+cp -a omarchy/openatat ~/.config/omarchy/plugins/openatat.chip
+
+omarchy-shell shell rescanPlugins
+omarchy plugin enable openatat.chip
+omarchy-restart-shell
+```
+
+Or add `{ "id": "openatat.chip" }` to `bar.layout.right` in `~/.config/omarchy/shell.json`, then `omarchy-restart-shell`. Do **not** install Waybar. `omarchy plugin add` against this git URL will not work — that command wants `manifest.json` at the repository root.
+
+The chip watches `$XDG_RUNTIME_DIR/openatat/status.json` (`idle` / `busy` / `error`). Click sends `{"cmd":"open-ui","page":"settings"}` on `trigger.sock`. That must not summon `@@`. If `openatat-ui` was built without gpui, the click is a no-op.
+
+Full notes: [`omarchy/openatat/README.md`](omarchy/openatat/README.md).
+
 ## Permissions (Linux)
 
 Optional; deny one and the rest still works.
@@ -207,6 +236,7 @@ Optional; deny one and the rest still works.
 - **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key; C10 selection (`GetText` + selection offsets).
 - **Fcitx5 addon (`fcitx5-openatat`)** — product `@@` trigger. See above.
 - **layer-shell** — the popover. Hyprland provides it.
+- **Quickshell bar chip (`omarchy/openatat`)** — Omarchy presence. Reads `status.json` / `{"cmd":"status"}` on the trigger socket. Not Waybar.
 
 History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `entry`, `prompt` only). Prompts never go through our servers.
 
@@ -221,7 +251,7 @@ History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `e
 - Selection bar on Mac/Win (AXSelectedText / UIA TextPattern stubs only).
 - Mac/Win terminal handoff (`NSWorkspace` / `CreateProcessW` stubs only).
 
-C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented. C10 (Linux mouse selection bar) is implemented in `openatatd`. Terminal handoff (Super+Return) is implemented on Linux in `openatatd`.
+C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented. C10 (Linux mouse selection bar) is implemented in `openatatd`. Terminal handoff (Super+Return) is implemented on Linux in `openatatd`. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
 
 ## Crate layout
 
@@ -230,6 +260,7 @@ crates/openatat-ipc     shared JSON protocol
 crates/openatatd        native applet
 crates/openatat-ui      gpui-ce Settings + history (`--features gpui`)
 ime/fcitx5-openatat     Fcitx5 module (product @@ trigger)
+omarchy/openatat        Omarchy 4 Quickshell bar chip (not Waybar)
 ```
 
 Overlay crates: `wayland-client` + `smithay-client-toolkit` (layer-shell), `wl-clipboard-rs` (data-control), `zbus` (AT-SPI), `image` (downscale). No iced, gtk4-layer-shell, AGS, astal, or Waybar.
