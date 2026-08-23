@@ -1,4 +1,7 @@
 //! Native overlay. Not gpui. Mac/Win are cfg-gated nonactivating stubs.
+//!
+//! One compositor client hosts both the `@@` popover and the C10 selection
+//! bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no surface.
 
 use crate::capture::Still;
 use crate::error::Result;
@@ -17,24 +20,42 @@ mod windows;
 pub enum OverlayEnd {
     Cancelled,
     Tab,
+    /// Copy or Search completed; field was not modified.
+    Copied,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayKind {
+    Prompt,
+    SelectionBar,
 }
 
 pub fn run(session: &mut Session) -> Result<OverlayEnd> {
+    run_kind(session, OverlayKind::Prompt)
+}
+
+pub fn run_bar(session: &mut Session) -> Result<OverlayEnd> {
+    run_kind(session, OverlayKind::SelectionBar)
+}
+
+fn run_kind(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     #[cfg(target_os = "linux")]
     {
-        return linux::run(session);
+        return linux::run(session, kind);
     }
     #[cfg(target_os = "macos")]
     {
+        let _ = kind;
         return macos::run(session);
     }
     #[cfg(target_os = "windows")]
     {
+        let _ = kind;
         return windows::run(session);
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
-        let _ = session;
+        let _ = (session, kind);
         Err(crate::error::Error::msg("overlay unsupported on this OS"))
     }
 }

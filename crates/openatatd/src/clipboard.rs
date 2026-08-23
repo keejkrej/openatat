@@ -3,13 +3,18 @@
 use crate::error::{Error, Result};
 
 pub fn copy_text(text: &str) -> Result<()> {
+    copy_plain_or_html(text, None)
+}
+
+/// Keep formatting when AT-SPI gave us HTML attributes; otherwise plain text.
+pub fn copy_plain_or_html(text: &str, html: Option<&str>) -> Result<()> {
     #[cfg(target_os = "linux")]
     {
-        return linux::copy_text(text);
+        return linux::copy_plain_or_html(text, html);
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let _ = text;
+        let _ = (text, html);
         Err(Error::msg(
             "clipboard copy is Linux-only in P0 (NSPasteboard / Win32 later)",
         ))
@@ -20,12 +25,33 @@ pub fn copy_text(text: &str) -> Result<()> {
 mod linux {
     use super::*;
 
-    pub fn copy_text(text: &str) -> Result<()> {
+    pub fn copy_plain_or_html(text: &str, html: Option<&str>) -> Result<()> {
+        if let Some(html) = html {
+            if copy_data_control_both(text, html).is_ok() {
+                return Ok(());
+            }
+        }
         match copy_data_control(text) {
             Ok(()) => return Ok(()),
             Err(e) => tracing_fallback(&e),
         }
         copy_wl_copy_bin(text)
+    }
+
+    fn copy_data_control_both(plain: &str, html: &str) -> Result<()> {
+        use wl_clipboard_rs::copy::{MimeSource, MimeType, Options, Source};
+        Options::new()
+            .copy_multi(vec![
+                MimeSource {
+                    source: Source::Bytes(html.as_bytes().to_vec().into_boxed_slice()),
+                    mime_type: MimeType::Specific("text/html".into()),
+                },
+                MimeSource {
+                    source: Source::Bytes(plain.as_bytes().to_vec().into_boxed_slice()),
+                    mime_type: MimeType::Text,
+                },
+            ])
+            .map_err(|e| Error::msg(format!("wlr-data-control: {e}")))
     }
 
     fn tracing_fallback(err: &Error) {

@@ -10,12 +10,12 @@ Apache-2.0. No bundled LLM.
 
 | Process | Role |
 | --- | --- |
-| `openatatd` | Always-on native applet. Owns the `@@` overlay, trigger, insert, capture, and (later) Orb + selection bar. Idle maps **no** surface and starts **no** GPU window. |
+| `openatatd` | Always-on native applet. Owns the `@@` overlay, C10 selection bar, trigger, insert, capture, and (later) Orb. Idle maps **no** surface and starts **no** GPU window. |
 | `openatat-ui` | gpui-ce, **on demand**. Settings + history browser (studio / first-run later). Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
 
-- **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surface inside `openatatd`, software `wl_shm`. Keyboard `OnDemand` only while the prompt is up.
+- **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surface inside `openatatd`, software `wl_shm`. Keyboard `OnDemand` only while the prompt or selection bar is up. The selection bar is the same compositor client as the `@@` popover — not a gpui window.
 - **Mac (later):** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel`.
 - **Windows (later):** `WS_EX_NOACTIVATE`.
 
@@ -54,6 +54,28 @@ cargo run -p openatatd -- trigger
 ```
 
 The daemon listens on `$XDG_RUNTIME_DIR/openatat/trigger.sock`. The Fcitx5 addon sends the same JSON (`source: ime`). A Hyprland bind is not the product path — see SPEC.md §6.
+
+### Selection bar (C10)
+
+After a **mouse-up** in a text field, if AT-SPI reports selected text, a compact nonactivating bar appears next to the selection (extents if present, otherwise near the pointer): **Ask @@**, **Copy**, **Search**, **Summarize**, **Explain**. Keyboard selections (shift+arrow) do not summon it. Password fields are re-probed every time and never read.
+
+Ask / Summarize / Explain run the existing agent + **preview card**. `Tab` replaces the selection (clipboard-first, then Hyprland window-address check, then AT-SPI `DeleteText` + `InsertText`). Copy and Search run immediately. Selected text is ephemeral: used for the action, never stored in history, never logged.
+
+If AT-SPI cannot expose a selection (common in browsers / Electron), OpenAtat **skips** — it does not steal the clipboard to guess. An app exclude list can wait on Settings.
+
+Dev probe (treat the current AT-SPI selection as a mouse-up; not a hotkey):
+
+```bash
+# terminal A: openatatd
+# terminal B
+cargo run -p openatatd -- selection
+```
+
+Headless (no display; selected text is not written to history):
+
+```bash
+cargo run -p openatatd -- --headless --selection='some text' --action=summarize
+```
 
 ## Product `@@` trigger (Fcitx5)
 
@@ -161,7 +183,7 @@ Optional; deny one and the rest still works.
 - **grim** — C1 auto-still of the focused Hyprland output. Silent. Do not route auto-attach through the xdg-desktop-portal screenshot picker.
 - **hyprctl** — active output name + `activewindow` address (insert abort).
 - **wlr-data-control** or **wl-copy** — clipboard-first insert.
-- **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key.
+- **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key; C10 selection (`GetText` + selection offsets).
 - **Fcitx5 addon (`fcitx5-openatat`)** — product `@@` trigger. See above.
 - **layer-shell** — the popover. Hyprland provides it.
 
@@ -173,11 +195,12 @@ History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `e
 - Mac overlay (`NSPanel` nonactivating), ScreenCaptureKit, AX insert.
 - Windows overlay (`WS_EX_NOACTIVATE`), WGC, UI Automation.
 - `openatat-ui` studio / first-run (Settings + history are implemented).
-- Orb, selection bar, clipboard shelf, Finder/Nautilus (Nautilus has **no** selection D-Bus API).
-- Recording, scrolling capture, OCR, annotation studio (C6–C19 except comments).
+- Orb, clipboard shelf, Finder/Nautilus (Nautilus has **no** selection D-Bus API — C10 is text selection, not files).
+- Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10).
+- Selection bar on Mac/Win (AXSelectedText / UIA TextPattern stubs only).
 - Handoff to a terminal.
 
-C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented.
+C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented. C10 (Linux mouse selection bar) is implemented in `openatatd`.
 
 ## Crate layout
 

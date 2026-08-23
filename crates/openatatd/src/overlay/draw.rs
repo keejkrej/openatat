@@ -4,6 +4,8 @@ use font8x8::legacy::BASIC_LEGACY;
 
 pub const POPOVER_W: u32 = 460;
 pub const POPOVER_H: u32 = 300;
+pub const BAR_W: u32 = crate::selection::BAR_W;
+pub const BAR_H: u32 = crate::selection::BAR_H;
 
 pub const COL_BG: u32 = 0xFF1A1B26;
 pub const COL_PANEL: u32 = 0xFF24283B;
@@ -15,6 +17,8 @@ pub const COL_DANGER: u32 = 0xFFF7768E;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
+    /// Compact C10 selection bar (Ask / Copy / Search / Summarize / Explain).
+    Bar,
     Prompt,
     Running,
     Preview,
@@ -55,6 +59,9 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
     );
 
     match frame.phase {
+        Phase::Bar => {
+            render_bar(&mut buf, width, height);
+        }
         Phase::Prompt => {
             text(
                 &mut buf,
@@ -79,15 +86,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
             text(&mut buf, width, 26, 82, &caret, COL_TEXT, 1);
         }
         Phase::Running => {
-            text(
-                &mut buf,
-                width,
-                20,
-                72,
-                "Running BYO CLI…",
-                COL_ACCENT,
-                1,
-            );
+            text(&mut buf, width, 20, 72, "Running BYO CLI…", COL_ACCENT, 1);
         }
         Phase::Refine => {
             text(
@@ -145,7 +144,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         }
     }
 
-    if frame.has_tile {
+    if frame.has_tile && frame.phase != Phase::Bar {
         fill_rect(&mut buf, width, 20, 180, 128, 72, COL_TILE);
         if let Some((tw, th, pixels)) = thumb {
             blit(&mut buf, width, 24, 184, tw, th, pixels);
@@ -157,16 +156,79 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         text(&mut buf, width, 154, 210, "auto-still", COL_MUTED, 1);
     }
 
-    text(
-        &mut buf,
-        width,
-        20,
-        height.saturating_sub(28),
-        &frame.status,
-        COL_MUTED,
-        1,
-    );
+    if frame.phase != Phase::Bar {
+        text(
+            &mut buf,
+            width,
+            20,
+            height.saturating_sub(28),
+            &frame.status,
+            COL_MUTED,
+            1,
+        );
+    }
     buf
+}
+
+/// Button order matches [`crate::selection::BarAction`] plus close.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarHit {
+    Ask,
+    Copy,
+    Search,
+    Summarize,
+    Explain,
+    Close,
+}
+
+const BAR_BTNS: &[(&str, BarHit, u32)] = &[
+    ("Ask @@", BarHit::Ask, 8),
+    ("Copy", BarHit::Copy, 80),
+    ("Search", BarHit::Search, 140),
+    ("Summarize", BarHit::Summarize, 210),
+    ("Explain", BarHit::Explain, 310),
+];
+
+fn render_bar(buf: &mut [u8], width: u32, height: u32) {
+    fill_rect(buf, width, 0, 0, width, height, COL_BG);
+    fill_rect(
+        buf,
+        width,
+        2,
+        2,
+        width.saturating_sub(4),
+        height.saturating_sub(4),
+        COL_PANEL,
+    );
+    for (label, _, x) in BAR_BTNS {
+        fill_rect(buf, width, *x, 8, btn_w(label), 24, COL_TILE);
+        text(buf, width, *x + 6, 13, label, COL_TEXT, 1);
+    }
+    text(buf, width, width.saturating_sub(20), 13, "x", COL_MUTED, 1);
+}
+
+fn btn_w(label: &str) -> u32 {
+    (label.len() as u32) * 9 + 14
+}
+
+pub fn hit_bar(x: f64, y: f64, width: u32) -> Option<BarHit> {
+    if y < 6.0 || y > 34.0 {
+        if x >= f64::from(width.saturating_sub(28)) && y <= 36.0 {
+            return Some(BarHit::Close);
+        }
+        return None;
+    }
+    if x >= f64::from(width.saturating_sub(28)) {
+        return Some(BarHit::Close);
+    }
+    for (label, hit, bx) in BAR_BTNS {
+        let w = btn_w(label) as f64;
+        let left = f64::from(*bx);
+        if x >= left && x <= left + w {
+            return Some(*hit);
+        }
+    }
+    None
 }
 
 pub fn hit_remove(x: f64, y: f64, has_tile: bool) -> bool {
@@ -294,5 +356,29 @@ mod tests {
     fn remove_hit_only_with_tile() {
         assert!(!hit_remove(160.0, 190.0, false));
         assert!(hit_remove(160.0, 190.0, true));
+    }
+
+    #[test]
+    fn bar_hits_ask_and_close() {
+        assert_eq!(hit_bar(20.0, 16.0, BAR_W), Some(BarHit::Ask));
+        assert_eq!(hit_bar(90.0, 16.0, BAR_W), Some(BarHit::Copy));
+        assert_eq!(hit_bar(220.0, 16.0, BAR_W), Some(BarHit::Summarize));
+        assert_eq!(
+            hit_bar(f64::from(BAR_W) - 10.0, 16.0, BAR_W),
+            Some(BarHit::Close)
+        );
+    }
+
+    #[test]
+    fn render_bar_is_compact() {
+        let frame = Frame {
+            phase: Phase::Bar,
+            prompt: String::new(),
+            preview: String::new(),
+            has_tile: false,
+            status: String::new(),
+        };
+        let buf = render(BAR_W, BAR_H, &frame, None);
+        assert_eq!(buf.len(), (BAR_W * BAR_H * 4) as usize);
     }
 }

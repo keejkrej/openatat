@@ -30,9 +30,18 @@ It is not another workspace. There are no sessions to maintain. Call it up, get 
 
 - The overlay is a **small popover**, not a fullscreen dim/blur.
 - OpenAtat must not become the active application. The client keeps its “active app” identity.
-- Keyboard interactivity is **OnDemand, and only while the prompt / preview is up**. Idle has no mapped surface.
+- Keyboard interactivity is **OnDemand, and only while the prompt / preview / selection bar is up**. Idle has no mapped surface.
 - `Esc` cancels from any state.
 - Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) re-runs with the same attachments and replaces the preview. Handoff (`⌘Return` / Super+Return → real agent session) is later.
+
+### Selection bar (C10)
+
+- Mouse-up only. Keyboard selections do not summon the bar.
+- Compact native layer-shell bar (same compositor client as `@@`): Ask @@, Copy, Search, Summarize, Explain. User-defined prompts can wait.
+- Selected text is ephemeral: used for the action, never stored in history, never logged.
+- Secure / password fields are never read. Re-probe AT-SPI `PasswordText` every time, never cache.
+- Ask / one-click prompts go through the preview card. Replace-in-place only after `Tab` (clipboard-first, then Hyprland address, then `DeleteText` + `InsertText`). No synthetic backspaces. Copy and Search run immediately.
+- If AT-SPI cannot expose a selection, skip. Do not invent a clipboard save/restore. This is text selection, not Nautilus.
 
 ### Preview, insert, clipboard
 
@@ -54,7 +63,7 @@ This split is a product decision. Do not revisit it for convenience.
 
 | Process | Owns | Lifetime |
 | --- | --- | --- |
-| `openatatd` (native applet) | `@@` overlay, Orb (later), trigger, insert, capture, selection bar (later) | Always on. Idle has **zero GPU windows**. |
+| `openatatd` (native applet) | `@@` overlay, C10 selection bar, Orb (later), trigger, insert, capture | Always on. Idle has **zero GPU windows**. |
 | `openatat-ui` (gpui-ce) | Settings, studio / annotation, history browser, first-run | Spawn on demand, quit when idle. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has `LayerShell` / `PopUp` / `Transparent` / `focus: false`, but that is **not** a nonactivating panel.
@@ -92,7 +101,7 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C7 | Video recording | No | Stub / comment only. |
 | C8 | GIF recording | No | Stub / comment only. |
 | C9 | OCR | No | Stub / comment only. |
-| C10 | Live text selection (selection bar) | No | Mouse selections only in Atat. Secure input never read. |
+| C10 | Live text selection (selection bar) | **P1 Linux** | Mouse-up only. Native layer-shell bar in `openatatd` (not gpui). AT-SPI `GetText` + selection offsets. Secure role re-probed every time. Selected text is ephemeral (never history / logs). Skip if AT-SPI exposes no selection — no clipboard dance. Mac/Win: AXSelectedText / UIA TextPattern stubs. |
 | C11 | File-manager working directory | No | Finder on Mac. Nautilus has **no selection D-Bus API**. |
 | C12 | File-manager selected files | No | Same Nautilus landmine. Right-click “Ask” needs no extra permission on Mac. |
 | C13 | Current clipboard item as a tile | No | Distinct from insert’s clipboard-first write. |
@@ -103,7 +112,7 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C18 | Video trim / export | No | Studio. |
 | C19 | Recording keyboard bezel | No | KeyCastr-style overlay during record. |
 
-C1 is the only live capture in P0. C6–C19 exist in this inventory so later work does not invent a second taxonomy.
+C1 is the only live capture in P0. C10 is live on Linux in P1 (mouse-up + AT-SPI). C6–C19 stay in this inventory so later work does not invent a second taxonomy.
 
 ## 3. OS API matrix
 
@@ -115,7 +124,8 @@ C1 is the only live capture in P0. C6–C19 exist in this inventory so later wor
 | Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 password edit every key |
 | Screen still | **grim** (`-o` active output). No xdg-desktop-portal picker on auto-attach | ScreenCaptureKit | Windows.Graphics.Capture (WGC) |
 | Downscale | CPU, long-edge 1600–1920 | Same policy | Same policy |
-| Insert | AT-SPI `EditableText.InsertText` when a text field is focused | `AXUIElement` | UI Automation |
+| Insert | AT-SPI `EditableText.InsertText` (replace uses `DeleteText` then insert; no synthetic backspaces) | `AXUIElement` | UI Automation |
+| Selection bar (C10) | AT-SPI `GetNSelections` / `GetSelection` / `GetText` / `GetRangeExtents`; `RegisterEvent("mouse:b1r")`. Skip if no selection. | AXSelectedText stub | UIA TextPattern stub |
 | Focus identity | `hyprctl activewindow` **address** | PID + AX window | `HWND` |
 | Clipboard | `wlr-data-control` via `wl-clipboard-rs`, `wl-copy` fallback | `NSPasteboard` | Win32 clipboard |
 | File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` |
@@ -155,7 +165,7 @@ Every permission is optional. Deny one and the rest of the app keeps working; th
 | grim allowed to capture outputs | C1 auto-still | Hyprland: grim is silent; do **not** route auto-attach through xdg-desktop-portal Screenshot (picker) |
 | `hyprctl` | Active output name + window address | Hyprland instance signature socket |
 | `wlr-data-control` or `wl-copy` | Clipboard-first insert | Hyprland supports data-control |
-| AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
+| AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe + C10 selection | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
 | Fcitx5 (`fcitx5-openatat`) | Product `@@` trigger | C++ module; see IME plan |
 | Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger | `fcitx5-openatat` and `openatatd trigger` |
 
@@ -251,7 +261,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - BYO CLI runner (template, scratch dir, no shell interpolation). **Done.** Provider pick is `~/.config/openatat/agent.toml`.
 - Preview refine (`R`). **Done.**
 - `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio / first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
-- Selection bar start (C10) if AT-SPI selection is trustworthy.
+- Selection bar (C10) for Linux mouse selections when AT-SPI reports selected text. **Done.** Keyboard selections do not summon. Browsers/Electron that expose no selection are skipped (no clipboard save/restore). User-defined prompts and an exclude list can wait on Settings.
 - Quickshell bar chip (not Waybar).
 - Handoff to a terminal.
 
@@ -292,7 +302,7 @@ Investigated and used:
 | Clipboard | `wl-clipboard-rs` 0.9 | Implements `ext-data-control` / `wlr-data-control`. `wl-copy` binary as fallback. |
 | Still decode / downscale | `image` 0.25 (png only) | CPU. No GPU image pipeline. |
 | Overlay glyphs | `font8x8` 0.3 | Software bitmap, no fontconfig / FreeType at idle. |
-| AT-SPI insert | `zbus` 5 calling `org.a11y.atspi.*` | Same bus the `atspi` crate (Odilia) wraps. P0 stays on a short blocking runtime via `zbus` sync. `atspi` remains the higher-level option for P1 event streams. |
+| AT-SPI insert + C10 | `zbus` 5 calling `org.a11y.atspi.*` | Same bus the `atspi` crate (Odilia) wraps. Selection events stay on `zbus` (`RegisterEvent("mouse:b1r")` + `Event.Mouse::Button`). No second compositor client: the `@@` popover and the selection bar share the layer-shell host in `openatatd`. |
 | JSON / errors | `serde`, `serde_json`, `thiserror` | IPC + history. |
 
 No crate found (documented, not invented):
