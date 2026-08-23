@@ -114,6 +114,7 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         refine_session: None,
         template_display: agent::resolve_selected().display(),
         still_png: session.still.as_ref().map(|s| s.png.clone()),
+        video: session.video.clone(),
         phase: match kind {
             OverlayKind::SelectionBar => Phase::Bar,
             OverlayKind::Prompt => Phase::Prompt,
@@ -121,7 +122,7 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         },
         selection: session.selection.clone(),
         prompt_action: None,
-        has_tile: session.still.is_some(),
+        has_tile: session.still.is_some() || session.video.is_some(),
         thumb,
         end: None,
         dirty: true,
@@ -147,6 +148,11 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         session.preview = Some(overlay.preview);
     }
     crate::studio_attach::apply_still_bytes(overlay.has_tile, overlay.still_png, session);
+    session.video = if overlay.has_tile {
+        overlay.video
+    } else {
+        None
+    };
     session.dropped_files = overlay.dropped_files;
     session.dropped_text = overlay.dropped_text;
     if let Some(ctl) = overlay.ctl {
@@ -174,6 +180,7 @@ struct Overlay {
     refine_session: Option<RefineSession>,
     template_display: String,
     still_png: Option<Vec<u8>>,
+    video: Option<std::path::PathBuf>,
     phase: Phase,
     has_tile: bool,
     thumb: Option<(u32, u32, Vec<u8>)>,
@@ -208,7 +215,9 @@ impl Overlay {
         let status = match self.phase {
             Phase::Bar => "mouse selection · Ask / Copy / Search / Summarize / Explain",
             Phase::Prompt => {
-                if self.has_tile {
+                if self.video.is_some() && self.has_tile {
+                    "video attached · remove drops it · local mp4, not uploaded"
+                } else if self.has_tile {
                     "still attached · remove drops it · Edit opens studio"
                 } else {
                     "no still · grim missing or tile removed"
@@ -234,6 +243,7 @@ impl Overlay {
             prompt,
             preview: self.preview.clone(),
             has_tile: self.has_tile,
+            is_video: self.video.is_some() && self.still_png.is_none(),
             status,
             shelf_query: String::new(),
             shelf_lines: Vec::new(),
@@ -530,6 +540,9 @@ impl Overlay {
         if self.has_tile {
             if let Some(png) = self.still_png.as_ref() {
                 out.push(Attachment::Still { png: png.clone() });
+            }
+            if let Some(path) = self.video.as_ref() {
+                out.push(Attachment::File { path: path.clone() });
             }
         }
         if let Some(cwd) = self.finder_cwd.as_ref() {
@@ -852,7 +865,7 @@ impl PointerHandler for Overlay {
                     self.end = Some(OverlayEnd::Cancelled);
                 } else if draw::hit_handoff(x, y, self.phase) {
                     self.run_handoff(qh);
-                } else if draw::hit_edit(x, y, self.has_tile) {
+                } else if draw::hit_edit(x, y, self.has_tile && self.still_png.is_some()) {
                     if let Some(png) = self.still_png.clone() {
                         self.studio.edit(&png);
                     }
@@ -862,6 +875,7 @@ impl PointerHandler for Overlay {
                     self.has_tile = false;
                     self.thumb = None;
                     self.still_png = None;
+                    self.video = None;
                     self.dirty = true;
                     self.draw(qh);
                 }

@@ -200,11 +200,12 @@ unsafe extern "C" fn tap_callback(
         daemon::summon_shelf();
         return event;
     }
-    // ⌘⇧3 / ⌘⇧4 — listen-only, only because this tap already exists
+    // ⌘⇧3 / ⌘⇧4 / ⌘⇧5 — listen-only, only because this tap already exists
     // (Input Monitoring granted). Do not swallow OS screenshot keys.
     let capture_key = match keycode {
         20 => Some('3'), // kVK_ANSI_3
         21 => Some('4'), // kVK_ANSI_4
+        23 => Some('5'), // kVK_ANSI_5
         _ => None,
     };
     if let Some(key) = capture_key {

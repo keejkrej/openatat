@@ -31,6 +31,8 @@ pub struct Session {
     pub dropped_files: Vec<PathBuf>,
     /// C16: text dropped on the Orb.
     pub dropped_text: Vec<String>,
+    /// C7 recording (or later file tiles). Local cache path, never uploaded.
+    pub video: Option<PathBuf>,
 }
 
 impl Session {
@@ -66,6 +68,7 @@ impl Session {
             finder_files,
             dropped_files: Vec::new(),
             dropped_text: Vec::new(),
+            video: None,
         }
     }
 
@@ -86,6 +89,7 @@ impl Session {
             finder_files: Vec::new(),
             dropped_files: Vec::new(),
             dropped_text: Vec::new(),
+            video: None,
         }
     }
 
@@ -105,6 +109,15 @@ impl Session {
         session
     }
 
+    /// C7 (and later file tiles). Reuse the Orb-click constructor and attach
+    /// one local file. Never calls [`capture::capture_active_output`].
+    pub fn begin_explicit_file(path: PathBuf) -> Self {
+        debug_assert!(!crate::capture::policy::explicit_still_auto_attaches_c1());
+        let mut session = Self::begin_orb_click();
+        session.video = Some(path);
+        session
+    }
+
     /// C14 shelf. No C1 still. Focus is captured for paste abort.
     pub fn begin_shelf() -> Self {
         Self {
@@ -120,6 +133,7 @@ impl Session {
             finder_files: Vec::new(),
             dropped_files: Vec::new(),
             dropped_text: Vec::new(),
+            video: None,
         }
     }
 
@@ -143,6 +157,7 @@ impl Session {
             finder_files: Vec::new(),
             dropped_files: Vec::new(),
             dropped_text: Vec::new(),
+            video: None,
         }
     }
 }
@@ -163,6 +178,11 @@ pub fn run_orb_click() -> Result<SessionEnd> {
 
 pub fn run_explicit_still(still: Still) -> Result<SessionEnd> {
     let mut session = Session::begin_explicit_still(still);
+    run_overlay_session(&mut session)
+}
+
+pub fn run_explicit_file(path: PathBuf) -> Result<SessionEnd> {
+    let mut session = Session::begin_explicit_file(path);
     run_overlay_session(&mut session)
 }
 
@@ -297,6 +317,9 @@ pub fn session_attachments(session: &Session) -> Vec<Attachment> {
     if let Some(s) = session.still.as_ref() {
         out.push(Attachment::Still { png: s.png.clone() });
     }
+    if let Some(path) = session.video.as_ref() {
+        out.push(Attachment::File { path: path.clone() });
+    }
     if let Some(cwd) = session.finder_cwd.as_ref() {
         out.push(Attachment::WorkingDir { path: cwd.clone() });
     }
@@ -366,6 +389,27 @@ mod tests {
         assert!(!crate::orb::auto_attach_c1(s.entry));
         let src = include_str!("session.rs");
         let start = src.find("fn begin_explicit_still").expect("begin_explicit_still");
+        let rest = &src[start..];
+        let end = rest.find("\n    /// C7").unwrap_or(220);
+        let body = &rest[..end];
+        assert!(body.contains("begin_orb_click"));
+        assert!(!body.contains("capture_active_output"));
+    }
+
+    #[test]
+    fn explicit_file_is_a_video_tile_without_c1() {
+        let path = std::path::PathBuf::from("/tmp/openatat-record/demo.mp4");
+        let s = Session::begin_explicit_file(path.clone());
+        assert!(s.still.is_none());
+        assert_eq!(s.video.as_deref(), Some(path.as_path()));
+        assert_eq!(s.entry, EntryPoint::Orb);
+        assert!(!crate::orb::auto_attach_c1(s.entry));
+        let atts = session_attachments(&s);
+        assert!(atts.iter().any(|a| matches!(a, Attachment::File { .. })));
+        let src = include_str!("session.rs");
+        let start = src
+            .find("fn begin_explicit_file")
+            .expect("begin_explicit_file");
         let body = &src[start..start + 400];
         assert!(body.contains("begin_orb_click"));
         assert!(!body.contains("capture_active_output"));

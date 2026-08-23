@@ -38,6 +38,8 @@ pub struct Frame {
     pub prompt: String,
     pub preview: String,
     pub has_tile: bool,
+    /// C7 file tile (no PNG thumb, no C18 Edit).
+    pub is_video: bool,
     pub status: String,
     pub shelf_query: String,
     pub shelf_lines: Vec<String>,
@@ -173,13 +175,18 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         fill_rect(&mut buf, width, 20, 180, 128, 72, COL_TILE);
         if let Some((tw, th, pixels)) = thumb {
             blit(&mut buf, width, 24, 184, tw, th, pixels);
+        } else if frame.is_video {
+            text(&mut buf, width, 28, 200, "C7 video", COL_TEXT, 1);
+            text(&mut buf, width, 28, 216, "local mp4", COL_MUTED, 1);
         } else {
             text(&mut buf, width, 28, 208, "C1 still", COL_TEXT, 1);
         }
         fill_rect(&mut buf, width, 154, 180, 70, 22, COL_DANGER);
         text(&mut buf, width, 160, 186, "remove", COL_BG, 1);
-        fill_rect(&mut buf, width, 154, 206, 70, 22, COL_ACCENT);
-        text(&mut buf, width, 166, 212, "edit", COL_BG, 1);
+        if !frame.is_video {
+            fill_rect(&mut buf, width, 154, 206, 70, 22, COL_ACCENT);
+            text(&mut buf, width, 166, 212, "edit", COL_BG, 1);
+        }
     }
 
     if frame.phase != Phase::Bar && frame.phase != Phase::Shelf {
@@ -466,6 +473,7 @@ mod tests {
             prompt: "hi".into(),
             preview: String::new(),
             has_tile: false,
+            is_video: false,
             status: "idle".into(),
             shelf_query: String::new(),
             shelf_lines: Vec::new(),
@@ -510,6 +518,7 @@ mod tests {
             prompt: String::new(),
             preview: String::new(),
             has_tile: false,
+            is_video: false,
             status: String::new(),
             shelf_query: String::new(),
             shelf_lines: Vec::new(),
@@ -532,6 +541,7 @@ mod tests {
             prompt: String::new(),
             preview: String::new(),
             has_tile: false,
+            is_video: false,
             status: "recording on".into(),
             shelf_query: "hi".into(),
             shelf_lines: vec!["one".into(), "two".into()],

@@ -16,6 +16,11 @@ pub const LINUX_GRANTS: &[PermissionGrant] = &[
         how: "grim must be allowed to capture outputs. Do not route auto-attach through the xdg-desktop-portal screenshot picker. C2 uses grim geometry after the native rubber-band; slurp is only a fallback if that picker cannot map.",
     },
     PermissionGrant {
+        name: "wf-recorder",
+        unlocks: "C7 region recording to ~/.cache/openatat/record/<id>.mp4.",
+        how: "Preferred binary: wf-recorder -g <x,y WxH> -f <path> (argv data, never a shell string). gpu-screen-recorder is the fallback. PipeWire ScreenCast is only when neither is installed and must not replace C1. Portal Screenshot is never used.",
+    },
+    PermissionGrant {
         name: "hyprctl",
         unlocks: "Active output name + `activewindow` address (insert abort).",
         how: "Hyprland instance signature socket. Compared again at insert time.",
@@ -51,7 +56,7 @@ pub const MAC_GRANTS: &[PermissionGrant] = &[
     },
     PermissionGrant {
         name: "Screen Recording",
-        unlocks: "C1 / C2 / C4 stills via ScreenCaptureKit (OpenAtat windows excluded).",
+        unlocks: "C1 / C2 / C4 stills and C7 SCStream recording via ScreenCaptureKit (OpenAtat windows excluded).",
         how: "System Settings → Privacy & Security → Screen Recording → openatatd. Denied: skip the tile. Not CGWindowListCreateImage.",
     },
     PermissionGrant {
@@ -70,7 +75,7 @@ pub const WIN_GRANTS: &[PermissionGrant] = &[
     },
     PermissionGrant {
         name: "Graphics Capture",
-        unlocks: "C1 / C2 / C4 stills via Windows.Graphics.Capture CreateForMonitor (overlay / picker HWND excluded).",
+        unlocks: "C1 / C2 / C4 stills and C7 WGC + Media Foundation recording via CreateForMonitor (overlay / picker / stop-bar HWND excluded).",
         how: "Settings → Privacy & security → Screenshots and apps (graphics capture). Denied: skip the tile. Not GraphicsCapturePicker.",
     },
     PermissionGrant {
@@ -105,9 +110,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn names_the_five_linux_grants() {
+    fn names_the_linux_grants() {
         let names: Vec<_> = LINUX_GRANTS.iter().map(|g| g.name).collect();
-        assert_eq!(names, ["grim", "hyprctl", "clipboard", "AT-SPI", "Fcitx5"]);
+        assert_eq!(
+            names,
+            ["grim", "wf-recorder", "hyprctl", "clipboard", "AT-SPI", "Fcitx5"]
+        );
         let copy = grants_copy();
         assert!(copy.contains("optional"));
         assert!(copy.contains("does not request OS permissions"));

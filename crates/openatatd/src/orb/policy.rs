@@ -190,6 +190,7 @@ mod tests {
             finder_files: Vec::new(),
             dropped_files: Vec::new(),
             dropped_text: Vec::new(),
+            video: None,
         }
     }
 

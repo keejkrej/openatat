@@ -170,6 +170,34 @@ bind = SUPER SHIFT, 3, exec, openatatd --capture display
 
 macOS: `⌘⇧3` / `⌘⇧4` if Input Monitoring is already granted, else `--capture`. Windows: `Win+Shift+3/4` on the process-local hook, else `--capture`.
 
+### Video recording (C7)
+
+Atat `⌘⇧5` (record). The same native nonactivating rubber-band as C2. Esc on the picker, or a zero-size drag, cancels without recording. While recording, a compact stop bar (elapsed + Stop) stays on a layer-shell / NSPanel / `WS_EX_NOACTIVATE` surface — keyboard OnDemand only while it is up. Drag empty background to move it. A stray click elsewhere does not stop the recording; Esc cancels (discards), Stop writes the file.
+
+Linux prefers **`wf-recorder`**: `wf-recorder -g <x,y WxH> -f ~/.cache/openatat/record/<id>.mp4` with geometry as argv data (never a shell string). If `wf-recorder` is missing, `gpu-screen-recorder` is the region fallback. PipeWire ScreenCast is allowed only when no region recorder is installed and must not replace C1 grim. Portal **Screenshot** choosers stay illegal on C1. macOS: ScreenCaptureKit stream + a local file. Windows: WGC + Media Foundation. Overlay / Orb / picker / stop-bar windows are excluded when the platform allows.
+
+Stop waits for the mp4, then opens the existing `@@` overlay with that file as a tile — no second auto C1. Typed `@@` still auto-attaches C1. Encoder failures copy a useful error (not the prompt) and show it on the Orb error pill. Nothing is uploaded. Files live in OpenAtat’s cache until a later Save-to-Desktop. C6 scroll, C8 GIF, C9 OCR, C18 trim, and C19 bezel are not this gap.
+
+This is a **capture shortcut**, not a `@@` summon. The daemon does **not** install a Hyprland bind and does not steal OS screenshot keys.
+
+```bash
+# terminal A: openatatd
+# terminal B
+cargo run -p openatatd -- --capture record
+# or IPC: {"cmd":"capture","kind":"record"}
+```
+
+Omarchy / Hyprland — add this yourself (the applet will not write it):
+
+```ini
+# ~/.config/hypr/hyprland.conf
+bind = SUPER SHIFT, 5, exec, openatatd --capture record
+```
+
+Expected recorder: `wf-recorder` (`pacman -S wf-recorder`). `gpu-screen-recorder` is the fallback if that binary is missing.
+
+macOS: `⌘⇧5` only if Input Monitoring is already granted, else `--capture record`. Windows: `Win+Shift+5` on the process-local hook, else `--capture record`.
+
 ## Product `@@` trigger (Fcitx5)
 
 This is the real path: type `@@` in any text field. Requires Fcitx5 and the
@@ -398,6 +426,7 @@ This cloud / Linux agent **cannot** `cargo build --target x86_64-pc-windows-msvc
 Optional; deny one and the rest still works.
 
 - **grim** — C1 auto-still of the focused Hyprland output, plus C2/C4 stills after the native picker. Silent. Do not route auto-attach through the xdg-desktop-portal screenshot picker.
+- **wf-recorder** — C7 region recording (`-g` geometry as argv, file under `~/.cache/openatat/record/`). `gpu-screen-recorder` if wf-recorder is missing. Not the portal Screenshot chooser.
 - **hyprctl** — active output name + `activewindow` address (insert abort).
 - **wlr-data-control** or **wl-copy** — clipboard-first insert and C14 shelf watch.
 - **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key; C10 selection (`GetText` + selection offsets).
@@ -411,7 +440,7 @@ Optional TCC grants. Deny one and the rest still works. First-run can finish wit
 
 - **Input Monitoring** — listen-only `@@` event tap. System Settings → Privacy & Security → Input Monitoring → openatatd. Missing: log a grant hint; `--demo` / `trigger.sock` stay up.
 - **Accessibility** — AX insert, @@ swallow, C10 `AXSelectedText`, `AXSecureTextField` probe every key. System Settings → Privacy & Security → Accessibility.
-- **Screen Recording** — C1 / C2 / C4 via `SCScreenshotManager` + display `SCContentFilter` (OpenAtat windows excluded). Denied: skip the tile. Not `CGWindowListCreateImage`. C2 rubber-band is a nonactivating `NSPanel`.
+- **Screen Recording** — C1 / C2 / C4 via `SCScreenshotManager` + display `SCContentFilter`, and C7 via an `SCStream` + local file (OpenAtat windows excluded). Denied: skip the tile / recording. Not `CGWindowListCreateImage`. C2 / C7 rubber-band is a nonactivating `NSPanel`.
 - **Finder Automation** — insertion location + selection as real POSIX paths (cwd tile + file tiles). Denied: do **not** guess from the title bar. Right-click Service waits.
 
 ## Permissions (Windows)
@@ -419,7 +448,7 @@ Optional TCC grants. Deny one and the rest still works. First-run can finish wit
 Optional. Deny one and the rest still works.
 
 - **UI Automation** — insert, @@ swallow, C10 `TextPattern`, `IsPassword` / `ES_PASSWORD` every key. Password fields are never read.
-- **Graphics Capture** — C1 / C2 / C4 via WGC `CreateForMonitor`. Settings → Privacy & security → Screenshots and apps. Denied: skip the tile. Not `GraphicsCapturePicker`. C2 rubber-band is `WS_EX_NOACTIVATE` with `WDA_EXCLUDEFROMCAPTURE`.
+- **Graphics Capture** — C1 / C2 / C4 via WGC `CreateForMonitor`, and C7 via WGC + Media Foundation to a local mp4. Settings → Privacy & security → Screenshots and apps. Denied: skip the tile / recording. Not `GraphicsCapturePicker`. C2 / C7 rubber-band and the stop bar are `WS_EX_NOACTIVATE` with `WDA_EXCLUDEFROMCAPTURE`.
 - **Explorer shell** — cwd + selected PIDLs via `IShellWindows` → `IFolderView` when Explorer is frontmost. Title bar is never parsed. Context-menu DLL waits.
 
 History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, `timestamp`, `entry`, `prompt` only). Windows: `%LOCALAPPDATA%\openatat\history.jsonl`. The C14 shelf is a separate file (`clipboard-shelf.json`). Prompts never go through our servers.
@@ -429,11 +458,11 @@ History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
 - `openatat-ui` first-run tutorial (Settings + history + C17 studio are implemented).
 - Nautilus (no selection D-Bus API).
-- Recording, scrolling capture, OCR, C13 current-clipboard-as-tile, video studio / trim (C18). C2 area, C4 display, C14 clipboard shelf, and C17 still annotation are live.
+- Scrolling capture, OCR, GIF, C13 current-clipboard-as-tile, video studio / trim (C18). C2 area, C4 display, C7 recording, C14 clipboard shelf, and C17 still annotation are live.
 - Right-click Finder Service / Explorer context-menu DLL.
 - Windows tray icon (socket + right-click hide the Orb is enough for v1).
 
-C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). Typed `@@` still auto-attaches C1; **Orb click does not**. C2 (`--capture area`) rubber-bands a native nonactivating picker and opens `@@` with that still only. C4 (`--capture display`) is one output still, same overlay, no second C1. C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. C16 (drag-drop onto the Orb) is live on Wayland / macOS / Win32 drop targets — file-manager titles are never scraped. Terminal handoff is implemented on Linux, macOS, and Windows. The Orb is a native layer-shell / NSPanel / `WS_EX_NOACTIVATE` surface in `openatatd`, not gpui and not the Quickshell chip. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). Typed `@@` still auto-attaches C1; **Orb click does not**. C2 (`--capture area`) rubber-bands a native nonactivating picker and opens `@@` with that still only. C4 (`--capture display`) is one output still, same overlay, no second C1. C7 (`--capture record`) rubber-bands the same picker, records with `wf-recorder` (or `gpu-screen-recorder`), and opens `@@` with the local mp4 tile. C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. C16 (drag-drop onto the Orb) is live on Wayland / macOS / Win32 drop targets — file-manager titles are never scraped. Terminal handoff is implemented on Linux, macOS, and Windows. The Orb is a native layer-shell / NSPanel / `WS_EX_NOACTIVATE` surface in `openatatd`, not gpui and not the Quickshell chip. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
 
 ## Crate layout
 

@@ -152,6 +152,8 @@ USAGE:
   openatatd --capture area  C2 rubber-band still (IPC, or in-process if none)
   openatatd --capture display
                             C4 still of the output under the pointer / focus
+  openatatd --capture record
+                            C7 region record (IPC, or in-process if none)
 
 Linux product trigger: Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 macOS product trigger: listen-only CGEvent tap → ImeFilter (Input Monitoring optional).
@@ -165,6 +167,7 @@ fn parse_capture_kind(s: &str) -> Option<openatat_ipc::CaptureKind> {
     match s {
         "area" | "c2" => Some(openatat_ipc::CaptureKind::Area),
         "display" | "c4" => Some(openatat_ipc::CaptureKind::Display),
+        "record" | "c7" => Some(openatat_ipc::CaptureKind::Record),
         _ => None,
     }
 }
@@ -237,8 +240,12 @@ mod tests {
         assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Area));
         let cli = Cli::parse(["--capture", "display"]);
         assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Display));
+        let cli = Cli::parse(["--capture", "record"]);
+        assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Record));
         let cli = Cli::parse(["capture", "area"]);
         assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Area));
+        let cli = Cli::parse(["capture", "c7"]);
+        assert_eq!(cli.capture, Some(openatat_ipc::CaptureKind::Record));
         let cli = Cli::parse(["--studio", "--image", "/tmp/shot.png"]);
         assert_eq!(cli.open_ui, Some(UiPage::Studio));
         assert_eq!(

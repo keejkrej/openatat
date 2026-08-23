@@ -46,6 +46,7 @@ pub struct OverlayController {
     pub refine_session: Option<RefineSession>,
     pub template_display: String,
     pub still_png: Option<Vec<u8>>,
+    pub video: Option<PathBuf>,
     pub phase: Phase,
     pub has_tile: bool,
     pub thumb: Option<(u32, u32, Vec<u8>)>,
@@ -84,12 +85,13 @@ impl OverlayController {
             refine_session: None,
             template_display: agent::resolve_selected().display(),
             still_png: session.still.as_ref().map(|s| s.png.clone()),
+            video: session.video.clone(),
             phase: match kind {
                 OverlayKind::SelectionBar => Phase::Bar,
                 OverlayKind::Prompt => Phase::Prompt,
                 OverlayKind::Shelf => Phase::Shelf,
             },
-            has_tile: session.still.is_some(),
+            has_tile: session.still.is_some() || session.video.is_some(),
             thumb,
             end: None,
             dirty: true,
@@ -115,6 +117,11 @@ impl OverlayController {
             session.preview = Some(self.preview.clone());
         }
         crate::studio_attach::apply_still_bytes(self.has_tile, self.still_png.clone(), session);
+        session.video = if self.has_tile {
+            self.video.clone()
+        } else {
+            None
+        };
         session.finder_cwd = self.finder_cwd.clone();
         session.finder_files = self.finder_files.clone();
         session.dropped_files = self.dropped_files.clone();
@@ -125,7 +132,9 @@ impl OverlayController {
         let status = match self.phase {
             Phase::Bar => "mouse selection · Ask / Copy / Search / Summarize / Explain",
             Phase::Prompt => {
-                if self.has_tile {
+                if self.video.is_some() && self.has_tile {
+                    "video attached · remove drops it · local mp4, not uploaded"
+                } else if self.has_tile {
                     "still attached · remove drops it · Edit opens studio"
                 } else {
                     "no still · capture missing or tile removed"
@@ -175,6 +184,7 @@ impl OverlayController {
             prompt,
             preview: self.preview.clone(),
             has_tile: self.has_tile,
+            is_video: self.video.is_some() && self.still_png.is_none(),
             status,
             shelf_query,
             shelf_lines,
@@ -309,7 +319,7 @@ impl OverlayController {
         if draw::hit_handoff(x, y, self.phase) {
             return self.run_handoff();
         }
-        if draw::hit_edit(x, y, self.has_tile) {
+        if draw::hit_edit(x, y, self.has_tile && self.still_png.is_some()) {
             if let Some(png) = self.still_png.clone() {
                 self.studio.edit(&png);
             }
@@ -321,6 +331,7 @@ impl OverlayController {
             self.has_tile = false;
             self.thumb = None;
             self.still_png = None;
+            self.video = None;
             self.dirty = true;
             return vec![OverlayEffect::Redraw];
         }
@@ -582,6 +593,9 @@ impl OverlayController {
             if let Some(png) = self.still_png.as_ref() {
                 out.push(Attachment::Still { png: png.clone() });
             }
+            if let Some(path) = self.video.as_ref() {
+                out.push(Attachment::File { path: path.clone() });
+            }
         }
         if let Some(cwd) = self.finder_cwd.as_ref() {
             out.push(Attachment::WorkingDir { path: cwd.clone() });
@@ -619,6 +633,7 @@ mod tests {
             finder_files: Vec::new(),
             dropped_files: Vec::new(),
             dropped_text: Vec::new(),
+            video: None,
         }
     }
 

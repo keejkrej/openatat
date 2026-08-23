@@ -1,9 +1,10 @@
-//! Display-free C2 / C4 policy. Linux CI locks the contract without a GPU.
+//! Display-free C2 / C4 / C7 policy. Linux CI locks the contract without a GPU.
 //!
 //! Area and display stills become one tile on the existing `@@` overlay.
-//! The session constructor is Orb-click (no auto C1) plus the captured PNG.
-//! Esc on the picker cancels without opening `@@`. The daemon never writes a
-//! Hyprland bind and never steals OS screenshot keys.
+//! A finished recording becomes a file tile (local mp4). The session
+//! constructor is Orb-click (no auto C1) plus that tile. Esc on the picker
+//! cancels without opening `@@`. The daemon never writes a Hyprland bind
+//! and never steals OS screenshot keys.
 
 use openatat_ipc::CaptureKind;
 
@@ -16,8 +17,8 @@ pub enum CaptureOs {
 }
 
 /// Linux never installs a compositor bind. Mac may listen for `⌘⇧3` / `⌘⇧4`
-/// only when Input Monitoring is already granted. Windows uses `Win+Shift+3/4`
-/// on the existing process-local hook. Not a `@@` summon.
+/// / `⌘⇧5` only when Input Monitoring is already granted. Windows uses
+/// `Win+Shift+3/4/5` on the existing process-local hook. Not a `@@` summon.
 pub fn is_capture_shortcut(
     os: CaptureOs,
     kind: CaptureKind,
@@ -31,6 +32,7 @@ pub fn is_capture_shortcut(
     let want = match kind {
         CaptureKind::Display => '3',
         CaptureKind::Area => '4',
+        CaptureKind::Record => '5',
     };
     if !key.eq_ignore_ascii_case(&want) {
         return false;
@@ -46,6 +48,7 @@ pub fn capture_kind_for_key(key: char) -> Option<CaptureKind> {
     match key {
         '3' => Some(CaptureKind::Display),
         '4' => Some(CaptureKind::Area),
+        '5' => Some(CaptureKind::Record),
         _ => None,
     }
 }
@@ -199,7 +202,37 @@ mod tests {
         ));
         assert_eq!(capture_kind_for_key('3'), Some(CaptureKind::Display));
         assert_eq!(capture_kind_for_key('4'), Some(CaptureKind::Area));
-        assert_eq!(capture_kind_for_key('5'), None);
+        assert_eq!(capture_kind_for_key('5'), Some(CaptureKind::Record));
+        assert!(is_capture_shortcut(
+            CaptureOs::Mac,
+            CaptureKind::Record,
+            true,
+            true,
+            false,
+            false,
+            false,
+            '5'
+        ));
+        assert!(is_capture_shortcut(
+            CaptureOs::Windows,
+            CaptureKind::Record,
+            false,
+            true,
+            false,
+            false,
+            true,
+            '5'
+        ));
+        assert!(!is_capture_shortcut(
+            CaptureOs::Linux,
+            CaptureKind::Record,
+            true,
+            true,
+            false,
+            false,
+            true,
+            '5'
+        ));
     }
 
     #[test]
