@@ -12,7 +12,7 @@ use openatat_ipc::UiPage;
 
 use crate::field::{self, read_content, LineEditor};
 use crate::history::{self, entry_label, format_timestamp};
-use crate::permissions::LINUX_GRANTS;
+use crate::permissions::{LINUX_GRANTS, MAC_GRANTS};
 use crate::providers::{detect_on_path, PROVIDER_CHOICES};
 use crate::settings::{self, apply_provider_pick, AgentEdit};
 
@@ -428,21 +428,30 @@ impl Shell {
                          This window only documents them. It does not request OS permissions \
                          (no portal prompts, no Accessibility dialogs).",
             ))
-            .children(LINUX_GRANTS.iter().map(|g| {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .p_3()
-                    .rounded_md()
-                    .bg(rgb(0x1c1d22))
-                    .border_1()
-                    .border_color(rgb(0x2c2d33))
-                    .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(g.name))
-                    .child(div().text_sm().child(g.unlocks))
-                    .child(div().text_xs().text_color(rgb(0x8b8f99)).child(g.how))
-            }))
+            .children(LINUX_GRANTS.iter().map(|g| grant_card(g)))
+            .child(heading("macOS permissions"))
+            .child(div().text_sm().text_color(rgb(0x9aa0a6)).child(
+                "TCC grants are optional. Input Monitoring, Accessibility, \
+                         Screen Recording, and Finder Automation can each be denied; \
+                         --demo and the unix socket still work.",
+            ))
+            .children(MAC_GRANTS.iter().map(|g| grant_card(g)))
     }
+}
+
+fn grant_card(g: &'static crate::permissions::PermissionGrant) -> impl IntoElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .p_3()
+        .rounded_md()
+        .bg(rgb(0x1c1d22))
+        .border_1()
+        .border_color(rgb(0x2c2d33))
+        .child(div().font_weight(gpui::FontWeight::SEMIBOLD).child(g.name))
+        .child(div().text_sm().child(g.unlocks))
+        .child(div().text_xs().text_color(rgb(0x8b8f99)).child(g.how))
 }
 
 fn heading(text: &'static str) -> impl IntoElement {

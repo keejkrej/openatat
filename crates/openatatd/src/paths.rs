@@ -50,6 +50,13 @@ pub fn status_file_path() -> PathBuf {
     runtime_dir().join("status.json")
 }
 
+/// Serialize tests that mutate process-wide XDG_* vars.
+#[cfg(test)]
+pub(crate) fn xdg_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -62,6 +69,7 @@ mod tests {
 
     #[test]
     fn data_dir_respects_xdg() {
+        let _g = xdg_test_lock();
         let old = std::env::var_os("XDG_DATA_HOME");
         std::env::set_var("XDG_DATA_HOME", "/tmp/openatat-test-xdg");
         assert_eq!(data_dir(), PathBuf::from("/tmp/openatat-test-xdg/openatat"));
@@ -73,6 +81,7 @@ mod tests {
 
     #[test]
     fn config_and_cache_respect_xdg() {
+        let _g = xdg_test_lock();
         let old_cfg = std::env::var_os("XDG_CONFIG_HOME");
         let old_cache = std::env::var_os("XDG_CACHE_HOME");
         std::env::set_var("XDG_CONFIG_HOME", "/tmp/openatat-test-cfg");
@@ -97,6 +106,7 @@ mod tests {
 
     #[test]
     fn status_file_lives_next_to_the_trigger_socket() {
+        let _g = xdg_test_lock();
         let old = std::env::var_os("XDG_RUNTIME_DIR");
         std::env::set_var("XDG_RUNTIME_DIR", "/tmp/openatat-test-run");
         assert_eq!(

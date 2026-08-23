@@ -31,6 +31,12 @@ pub struct FocusSnapshot {
     pub title: Option<String>,
     /// Output name (`DP-1`, …) used for grim `-o`.
     pub output: Option<String>,
+    /// macOS frontmost pid. Unused on Linux.
+    #[serde(default)]
+    pub pid: Option<i32>,
+    /// macOS focused AX element identity. Unused on Linux.
+    #[serde(default)]
+    pub element_id: Option<String>,
 }
 
 /// Entry point recorded in local history. P0 only uses `text-field` and `demo`.
@@ -135,6 +141,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn focus_snapshot_old_json_without_mac_fields() {
+        let v: FocusSnapshot = serde_json::from_str(r#"{"window_address":"0x1"}"#).unwrap();
+        assert_eq!(v.window_address.as_deref(), Some("0x1"));
+        assert_eq!(v.pid, None);
+        assert_eq!(v.element_id, None);
+    }
+
+    #[test]
     fn trigger_roundtrip() {
         let req = DaemonRequest::Trigger {
             source: TriggerSource::Ime,
@@ -143,6 +157,7 @@ mod tests {
                 app_id: Some("kitty".into()),
                 title: None,
                 output: Some("DP-1".into()),
+                ..FocusSnapshot::default()
             },
         };
         let line = req.encode().unwrap();

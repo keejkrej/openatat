@@ -1,9 +1,12 @@
+use std::path::PathBuf;
+
 use openatat_ipc::{EntryPoint, FocusSnapshot, TriggerSource};
 
 use crate::a11y::TextSelection;
 use crate::agent::{self, Attachment, Launch};
 use crate::capture::{self, Still};
 use crate::error::Result;
+use crate::finder::{self, FinderProbe};
 use crate::focus;
 use crate::insert::{self, InsertOutcome};
 use crate::overlay::{self, OverlayEnd};
@@ -20,14 +23,31 @@ pub struct Session {
     /// Ephemeral. Never written to history and never logged.
     pub selection: Option<TextSelection>,
     pub placement: Option<Placement>,
+    /// Finder insertion location. Only from Automation, never the title bar.
+    pub finder_cwd: Option<PathBuf>,
+    /// Finder selected files. Only from Automation, never the title bar.
+    pub finder_files: Vec<PathBuf>,
 }
 
 impl Session {
     pub fn begin(source: TriggerSource) -> Self {
         let focus = focus::snapshot();
         let still = capture::capture_active_output(focus.output.as_deref()).ok();
+        let (finder_cwd, finder_files, entry_fm) = match finder::probe(&focus) {
+            FinderProbe::Ready { cwd, files } => (cwd, files, true),
+            FinderProbe::Denied => {
+                eprintln!(
+                    "openatatd: Finder is frontmost but Automation is denied — \
+                     not guessing paths from the title bar. \
+                     System Settings → Privacy & Security → Automation → openatatd → Finder."
+                );
+                (None, Vec::new(), false)
+            }
+            FinderProbe::NotFinder => (None, Vec::new(), false),
+        };
         let entry = match source {
             TriggerSource::Demo => EntryPoint::Demo,
+            TriggerSource::Ime if entry_fm => EntryPoint::FileManager,
             TriggerSource::Ime => EntryPoint::TextField,
         };
         Self {
@@ -39,6 +59,8 @@ impl Session {
             preview: None,
             selection: None,
             placement: None,
+            finder_cwd,
+            finder_files,
         }
     }
 
@@ -58,6 +80,8 @@ impl Session {
             preview: None,
             selection: Some(sel),
             placement,
+            finder_cwd: None,
+            finder_files: Vec::new(),
         }
     }
 }
@@ -174,12 +198,17 @@ fn prompt_action_from_session_prompt(prompt: &str) -> PromptAction {
 }
 
 pub fn session_attachments(session: &Session) -> Vec<Attachment> {
-    session
-        .still
-        .as_ref()
-        .map(|s| Attachment::Still { png: s.png.clone() })
-        .into_iter()
-        .collect()
+    let mut out = Vec::new();
+    if let Some(s) = session.still.as_ref() {
+        out.push(Attachment::Still { png: s.png.clone() });
+    }
+    if let Some(cwd) = session.finder_cwd.as_ref() {
+        out.push(Attachment::WorkingDir { path: cwd.clone() });
+    }
+    for path in &session.finder_files {
+        out.push(Attachment::File { path: path.clone() });
+    }
+    out
 }
 
 fn finish_tab(session: &Session) -> Result<SessionEnd> {
@@ -198,13 +227,10 @@ fn finish_tab(session: &Session) -> Result<SessionEnd> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static XDG_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn headless_dummy_writes_history_and_preview() {
-        let _g = XDG_LOCK.lock().unwrap();
+        let _g = crate::paths::xdg_test_lock();
         let dir = std::env::temp_dir().join(format!("openatat-sess-{}", uuid::Uuid::new_v4()));
         std::env::set_var("XDG_DATA_HOME", &dir);
         std::env::remove_var("OPENATAT_AGENT");
@@ -214,16 +240,17 @@ mod tests {
         std::fs::write(cfg.join("openatat/agent.toml"), "provider = \"dummy\"\n").unwrap();
         std::env::set_var("XDG_CONFIG_HOME", &cfg);
         std::env::set_var("XDG_CACHE_HOME", dir.join("cache"));
+        let hist_path = dir.join("openatat/history.jsonl");
         let end = run_headless(TriggerSource::Demo, "friendlier").unwrap();
         assert_eq!(end, SessionEnd::CopiedOnly);
-        let hist = std::fs::read_to_string(dir.join("openatat/history.jsonl")).unwrap();
+        let hist = std::fs::read_to_string(&hist_path).unwrap();
         assert!(hist.contains("friendlier"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn selection_is_ephemeral_not_written_to_history() {
-        let _g = XDG_LOCK.lock().unwrap();
+        let _g = crate::paths::xdg_test_lock();
         let dir = std::env::temp_dir().join(format!("openatat-selhist-{}", uuid::Uuid::new_v4()));
         std::env::set_var("XDG_DATA_HOME", &dir);
         std::env::remove_var("OPENATAT_AGENT");
@@ -234,9 +261,10 @@ mod tests {
         std::env::set_var("XDG_CONFIG_HOME", &cfg);
         std::env::set_var("XDG_CACHE_HOME", dir.join("cache"));
         let secret = "SECRET_SELECTION_XYZ";
+        let hist_path = dir.join("openatat/history.jsonl");
         let end = run_headless_selection(PromptAction::Summarize, secret, "").unwrap();
         assert_eq!(end, SessionEnd::CopiedOnly);
-        let hist = std::fs::read_to_string(dir.join("openatat/history.jsonl")).unwrap();
+        let hist = std::fs::read_to_string(&hist_path).unwrap();
         assert!(
             !hist.contains(secret),
             "selected text must not be stored: {hist}"

@@ -1,4 +1,4 @@
-//! Platform accessibility. Linux talks AT-SPI; Mac/Win are cfg-gated stubs.
+//! Platform accessibility. Linux talks AT-SPI; macOS talks AXUIElement.
 //!
 //! Password / secure roles are re-probed on every call. Never cache a field
 //! kind on a window. Selection reads use GetText + caret/selection offsets
@@ -13,9 +13,15 @@ use crate::trigger::FieldKind;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
-mod macos;
+pub(crate) mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
+mod macos_policy;
+
+pub use macos_policy::{
+    encode_element_id, interpret_ax_field, interpret_ax_selection, is_browser_bundle,
+    mac_identity_changed, parse_element_id, role_is_secure,
+};
 
 /// Screen-coordinate box for placing the selection bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,8 +207,7 @@ pub fn insert_into_focused_field(text: &str) -> Result<bool> {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = text;
-        macos::insert_into_focused_field()
+        macos::insert_into_focused_field(text)
     }
     #[cfg(target_os = "windows")]
     {
@@ -222,15 +227,32 @@ pub fn replace_range(text: &str, start: i32, end: i32) -> Result<bool> {
     {
         linux::replace_range(text, start, end)
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        macos::replace_range(text, start, end)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         let _ = (text, start, end);
         insert_into_focused_field(text)
     }
 }
 
+/// Pointer position from the mouse-up that triggered a probe.
+#[derive(Debug, Clone)]
+pub struct MouseUpHit {
+    pub probe: SelectionProbe,
+    pub pointer: Option<(i32, i32)>,
+}
+
 #[cfg(target_os = "linux")]
-pub use linux::{spawn_mouse_up_watcher, MouseUpHit};
+pub use linux::spawn_mouse_up_watcher;
+
+#[cfg(target_os = "macos")]
+pub use macos::spawn_mouse_up_watcher;
+
+#[cfg(target_os = "macos")]
+pub use macos::{macos_has_marked_text, macos_swallow_trigger};
 
 /// AT-SPI `Event.Mouse::Button` detail for left-button release (`mouse:b1r`).
 pub fn mouse_button_is_left_release(detail: &str) -> bool {

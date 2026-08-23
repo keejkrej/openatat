@@ -1,12 +1,16 @@
-//! Native overlay. Not gpui. Mac/Win are cfg-gated nonactivating stubs.
+//! Native overlay. Not gpui.
 //!
-//! One compositor client hosts both the `@@` popover and the C10 selection
-//! bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no surface.
+//! Linux: one compositor client hosts both the `@@` popover and the C10
+//! selection bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no surface.
+//! macOS: NSPanel nonactivating. Session / Tab / R / handoff live in
+//! [`controller`].
 
 use crate::capture::Still;
 use crate::error::Result;
 use crate::session::Session;
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod controller;
 mod draw;
 
 #[cfg(target_os = "linux")]
@@ -47,8 +51,7 @@ fn run_kind(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     }
     #[cfg(target_os = "macos")]
     {
-        let _ = kind;
-        return macos::run(session);
+        return macos::run(session, kind);
     }
     #[cfg(target_os = "windows")]
     {

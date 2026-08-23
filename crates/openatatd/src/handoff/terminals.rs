@@ -19,6 +19,27 @@ pub const DETECT_ORDER: &[TerminalKind] = &[
     TerminalKind::Xterm,
 ];
 
+/// macOS preference order. Terminal.app is last: it ignores argv.
+pub const DETECT_ORDER_MAC: &[TerminalKind] = &[
+    TerminalKind::Ghostty,
+    TerminalKind::Kitty,
+    TerminalKind::Iterm,
+    TerminalKind::Alacritty,
+    TerminalKind::Wezterm,
+    TerminalKind::TerminalApp,
+];
+
+pub fn detect_order() -> &'static [TerminalKind] {
+    #[cfg(target_os = "macos")]
+    {
+        DETECT_ORDER_MAC
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        DETECT_ORDER
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerminalKind {
     Ghostty,
@@ -28,6 +49,9 @@ pub enum TerminalKind {
     Foot,
     GnomeTerminal,
     Xterm,
+    Iterm,
+    #[allow(dead_code)]
+    TerminalApp,
 }
 
 impl TerminalKind {
@@ -40,6 +64,8 @@ impl TerminalKind {
             Self::Foot => "foot",
             Self::GnomeTerminal => "gnome-terminal",
             Self::Xterm => "xterm",
+            Self::Iterm => "iterm",
+            Self::TerminalApp => "terminal",
         }
     }
 
@@ -52,6 +78,8 @@ impl TerminalKind {
             Self::Foot => &["foot"],
             Self::GnomeTerminal => &["gnome-terminal"],
             Self::Xterm => &["xterm"],
+            Self::Iterm => &["iTerm2", "iterm2"],
+            Self::TerminalApp => &["Terminal"],
         }
     }
 
@@ -64,6 +92,8 @@ impl TerminalKind {
             "foot" | "footclient" => Some(Self::Foot),
             "gnome-terminal" | "gnome-console" | "kgx" => Some(Self::GnomeTerminal),
             "xterm" => Some(Self::Xterm),
+            "iterm" | "iterm2" => Some(Self::Iterm),
+            "terminal" | "terminal.app" => Some(Self::TerminalApp),
             _ => None,
         }
     }
@@ -133,7 +163,32 @@ impl TerminalKind {
                 }
                 v
             }
+            // iTerm2: cwd is NSWorkspace currentDirectoryURL. Remaining args are the program.
+            Self::Iterm => {
+                let mut v = vec![bin];
+                v.extend(cli.iter().cloned());
+                v
+            }
+            // Terminal.app ignores argv. Spawn sets cwd via NSWorkspace; prompt.txt is data.
+            Self::TerminalApp => {
+                vec![bin]
+            }
         }
+    }
+}
+
+/// Documented bundle paths. Used by NSWorkspace; tested on Linux.
+pub fn macos_bundle_path(kind: &str) -> Option<&'static str> {
+    match TerminalKind::parse(kind)? {
+        TerminalKind::Ghostty => Some("/Applications/Ghostty.app"),
+        TerminalKind::Kitty => Some("/Applications/kitty.app"),
+        TerminalKind::Iterm => Some("/Applications/iTerm.app"),
+        TerminalKind::Alacritty => Some("/Applications/Alacritty.app"),
+        TerminalKind::Wezterm => Some("/Applications/WezTerm.app"),
+        TerminalKind::TerminalApp => {
+            Some("/System/Applications/Utilities/Terminal.app")
+        }
+        _ => None,
     }
 }
 
@@ -159,7 +214,7 @@ pub fn which_terminal(
     if let Some(name) = configured {
         return which_named(name, path);
     }
-    for kind in DETECT_ORDER {
+    for kind in detect_order() {
         if let Some(bin) = first_bin(kind.bin_names(), path) {
             return Some((*kind, bin));
         }

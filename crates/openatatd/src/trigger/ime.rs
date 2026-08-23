@@ -295,6 +295,7 @@ mod tests {
 
     #[test]
     fn fcitx5_conf_dirs_include_xdg_data_home() {
+        let _g = crate::paths::xdg_test_lock();
         let old = std::env::var_os("XDG_DATA_HOME");
         std::env::set_var("XDG_DATA_HOME", "/tmp/openatat-fcitx-xdg");
         let dirs = fcitx5_addon_conf_dirs();

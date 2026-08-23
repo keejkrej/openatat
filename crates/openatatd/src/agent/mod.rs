@@ -2,8 +2,8 @@
 //!
 //! Prompt is passed as data (argv, stdin, or a temp file the template names).
 //! Never spliced into a shell string. Launch always uses an OpenAtat scratch
-//! cwd (file-manager tiles are not implemented). On failure the prompt is
-//! copied to the clipboard before the error is returned.
+//! cwd (Finder tiles are attachments, never the process cwd). On failure the
+//! prompt is copied to the clipboard before the error is returned.
 
 mod config;
 mod providers;
@@ -30,6 +30,10 @@ use template::PROMPT_FILE;
 #[derive(Debug, Clone)]
 pub enum Attachment {
     Still { png: Vec<u8> },
+    /// Finder insertion location (Mac Automation). Never a title-bar guess.
+    WorkingDir { path: std::path::PathBuf },
+    /// Finder selected file (Mac Automation). Never a title-bar guess.
+    File { path: std::path::PathBuf },
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +297,7 @@ fn run_launch_inner(launch: &Launch<'_>) -> Result<String> {
 
 pub(crate) fn write_attachments(prompt: &str, attachments: &[Attachment], scratch: &Path) -> Result<String> {
     let mut out = prompt.to_string();
+    let mut files = Vec::new();
     for att in attachments {
         match att {
             Attachment::Still { png } => {
@@ -302,6 +307,23 @@ pub(crate) fn write_attachments(prompt: &str, attachments: &[Attachment], scratc
                     "\n\n[OpenAtat] Attached screenshot: still.png (working directory).",
                 );
             }
+            Attachment::WorkingDir { path } => {
+                out.push_str(&format!(
+                    "\n\n[OpenAtat] Finder insertion location (cwd tile): {}",
+                    path.display()
+                ));
+            }
+            Attachment::File { path } => {
+                files.push(path.display().to_string());
+            }
+        }
+    }
+    if !files.is_empty() {
+        let list = scratch.join("finder-files.txt");
+        std::fs::write(&list, files.join("\n"))?;
+        out.push_str("\n\n[OpenAtat] Finder selected files (see finder-files.txt):\n");
+        for f in files {
+            out.push_str(&format!("- {f}\n"));
         }
     }
     Ok(out)

@@ -37,6 +37,27 @@ fn is_busy() -> bool {
     *BUSY.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+pub fn is_session_busy() -> bool {
+    is_busy()
+}
+
+/// Product `@@` path on macOS. Called from the listen-only tap on the main thread.
+pub fn summon_from_ime() {
+    if !try_enter() {
+        return;
+    }
+    match session::run_interactive(TriggerSource::Ime) {
+        Ok(_) => set_last_error(None),
+        Err(e) => set_last_error(Some(e.to_string())),
+    }
+    leave();
+}
+
+pub(crate) fn start_presence_and_selection() {
+    publish_presence();
+    start_selection_watcher();
+}
+
 fn set_last_error(msg: Option<String>) {
     *LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()) = msg;
 }
@@ -75,22 +96,34 @@ fn publish_presence() {
 }
 
 pub fn run_daemon() -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        return crate::macos_runtime::run_daemon_host(|| {
+            if let Err(e) = accept_loop() {
+                eprintln!("openatatd: socket: {e}");
+            }
+        });
+    }
+
     let mut fcitx = Fcitx5Backend;
     let mut ibus = IbusBackend;
     let _ = fcitx.start();
     let _ = ibus.start();
     let _ = (fcitx.name(), ibus.name());
 
+    start_presence_and_selection();
+    accept_loop()
+}
+
+fn accept_loop() -> Result<()> {
     let sock = trigger_socket_path();
     bind_socket(&sock)?;
-    publish_presence();
-    start_selection_watcher();
     eprintln!("openatatd: listening on {}", sock.display());
     eprintln!(
         "openatatd: status at {} (idle|busy|error)",
         status_file_path().display()
     );
-    eprintln!("openatatd: idle — no layer surface, no GPU window");
+    eprintln!("openatatd: idle — no overlay surface, no GPU window");
 
     let listener = UnixListener::bind(&sock)?;
     for incoming in listener.incoming() {

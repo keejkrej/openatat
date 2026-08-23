@@ -1,4 +1,4 @@
-//! First-run honesty: every Linux gate is optional. This page only documents
+//! First-run honesty: every grant is optional. This page only documents
 //! them. The Settings window must not request OS permissions.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,12 +37,41 @@ pub const LINUX_GRANTS: &[PermissionGrant] = &[
     },
 ];
 
+/// macOS TCC gates. All optional. Deny one; the rest of OpenAtat still works.
+pub const MAC_GRANTS: &[PermissionGrant] = &[
+    PermissionGrant {
+        name: "Input Monitoring",
+        unlocks: "Product `@@` trigger (listen-only event tap → ImeFilter).",
+        how: "System Settings → Privacy & Security → Input Monitoring → openatatd. Missing tap: --demo and the unix socket still work.",
+    },
+    PermissionGrant {
+        name: "Accessibility",
+        unlocks: "AX insert, @@ swallow, C10 AXSelectedText, secure-field probe.",
+        how: "System Settings → Privacy & Security → Accessibility → openatatd. Re-probed every key; never cached.",
+    },
+    PermissionGrant {
+        name: "Screen Recording",
+        unlocks: "C1 auto-still via ScreenCaptureKit (OpenAtat windows excluded).",
+        how: "System Settings → Privacy & Security → Screen Recording → openatatd. Denied: skip the tile. Not CGWindowListCreateImage.",
+    },
+    PermissionGrant {
+        name: "Finder Automation",
+        unlocks: "C11/C12 cwd tile + selected file tiles (real POSIX paths).",
+        how: "System Settings → Privacy & Security → Automation → openatatd → Finder. Denied: do not guess from the title bar. Right-click Service waits.",
+    },
+];
+
 pub fn grants_copy() -> String {
     let mut s = String::from(
-        "Each Linux grant is optional. Deny one and the rest of OpenAtat still works.\n\
+        "Each grant is optional. Deny one and the rest of OpenAtat still works.\n\
          This window does not request OS permissions; it only names what each unlocks.\n",
     );
+    s.push_str("\nLinux\n");
     for g in LINUX_GRANTS {
+        s.push_str(&format!("\n{} — {}\n  {}\n", g.name, g.unlocks, g.how));
+    }
+    s.push_str("\nmacOS\n");
+    for g in MAC_GRANTS {
         s.push_str(&format!("\n{} — {}\n  {}\n", g.name, g.unlocks, g.how));
     }
     s
@@ -59,5 +88,22 @@ mod tests {
         let copy = grants_copy();
         assert!(copy.contains("optional"));
         assert!(copy.contains("does not request OS permissions"));
+    }
+
+    #[test]
+    fn names_the_four_mac_tcc_grants() {
+        let names: Vec<_> = MAC_GRANTS.iter().map(|g| g.name).collect();
+        assert_eq!(
+            names,
+            [
+                "Input Monitoring",
+                "Accessibility",
+                "Screen Recording",
+                "Finder Automation"
+            ]
+        );
+        let copy = grants_copy();
+        assert!(copy.contains("Input Monitoring"));
+        assert!(copy.contains("title bar"));
     }
 }
