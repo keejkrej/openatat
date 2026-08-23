@@ -1,7 +1,9 @@
-//! Activating gpui-ce Settings + History window.
+//! Activating gpui-ce Settings + History + Studio windows.
 //!
 //! Not the @@ overlay. `QuitMode::LastWindowClosed` so the process exits
 //! when the last window closes.
+
+use std::path::PathBuf;
 
 use gpui::{
     actions, div, prelude::*, px, rgb, size, App, Application, Bounds, ClipboardItem, Context,
@@ -15,6 +17,7 @@ use crate::history::{self, entry_label, format_timestamp};
 use crate::permissions::{LINUX_GRANTS, MAC_GRANTS, WIN_GRANTS};
 use crate::providers::{detect_on_path, PROVIDER_CHOICES};
 use crate::settings::{self, apply_provider_pick, AgentEdit};
+use crate::studio_ui;
 
 actions!(openatat_ui, [Quit]);
 
@@ -25,11 +28,12 @@ enum Tab {
     Permissions,
 }
 
-pub fn run(page: UiPage) -> Result<(), String> {
+pub fn run(cli: crate::Cli) -> Result<(), String> {
     Application::new()
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
             field::bind_editor_keys(cx);
+            studio_ui::bind_studio_keys(cx);
             cx.bind_keys([
                 KeyBinding::new("ctrl-q", Quit, None),
                 KeyBinding::new("cmd-q", Quit, None),
@@ -42,39 +46,46 @@ pub fn run(page: UiPage) -> Result<(), String> {
             })
             .detach();
 
-            let bounds = Bounds::centered(None, size(px(820.), px(640.)), cx);
-            let open = cx.open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    titlebar: Some(TitlebarOptions {
-                        title: Some("OpenAtat".into()),
-                        appears_transparent: false,
-                        traffic_light_position: None,
-                    }),
-                    focus: true,
-                    show: true,
-                    kind: WindowKind::Normal,
-                    app_id: Some("openatat-ui".into()),
-                    window_min_size: Some(size(px(560.), px(420.))),
-                    ..Default::default()
-                },
-                |window, cx| cx.new(|cx| Shell::new(page, window, cx)),
-            );
-
-            match open {
-                Ok(handle) => {
-                    let _ = handle.update(cx, |_, window, cx| {
-                        cx.activate(true);
-                        window.activate_window();
-                    });
-                }
-                Err(e) => {
-                    eprintln!("openatat-ui: failed to open window ({e:?})");
-                    cx.quit();
-                }
+            match cli.page {
+                UiPage::Studio => studio_ui::open(cx, cli.image.clone()),
+                page => open_shell(cx, page),
             }
         });
     Ok(())
+}
+
+fn open_shell(cx: &mut App, page: UiPage) {
+    let bounds = Bounds::centered(None, size(px(820.), px(640.)), cx);
+    let open = cx.open_window(
+        WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: Some(TitlebarOptions {
+                title: Some("OpenAtat".into()),
+                appears_transparent: false,
+                traffic_light_position: None,
+            }),
+            focus: true,
+            show: true,
+            kind: WindowKind::Normal,
+            app_id: Some("openatat-ui".into()),
+            window_min_size: Some(size(px(560.), px(420.))),
+            ..Default::default()
+        },
+        |window, cx| cx.new(|cx| Shell::new(page, window, cx)),
+    );
+
+    match open {
+        Ok(handle) => {
+            let _ = handle.update(cx, |_, window, cx| {
+                cx.activate(true);
+                window.activate_window();
+            });
+        }
+        Err(e) => {
+            eprintln!("openatat-ui: failed to open window ({e:?})");
+            cx.quit();
+        }
+    }
 }
 
 struct Shell {
@@ -82,6 +93,7 @@ struct Shell {
     edit: AgentEdit,
     argv: Entity<LineEditor>,
     search: Entity<LineEditor>,
+    annotate_path: Entity<LineEditor>,
     detected: Vec<(String, Option<std::path::PathBuf>)>,
     history: Vec<openatat_ipc::HistoryRecord>,
     status: SharedString,
@@ -103,10 +115,19 @@ impl Shell {
         });
         let search =
             cx.new(|cx| LineEditor::new(cx, String::new(), "search prompts…", false, "search"));
+        let annotate_path = cx.new(|cx| {
+            LineEditor::new(
+                cx,
+                String::new(),
+                "local PNG or JPEG path…",
+                false,
+                "annotate-path",
+            )
+        });
         let focus_handle = cx.focus_handle();
         focus_handle.focus(window);
         let tab = match page {
-            UiPage::Settings => Tab::Settings,
+            UiPage::Settings | UiPage::Studio => Tab::Settings,
             UiPage::History => Tab::History,
         };
         let mut shell = Self {
@@ -114,10 +135,13 @@ impl Shell {
             edit,
             argv,
             search,
+            annotate_path,
             detected: detect_on_path(std::env::var_os("PATH").as_deref()),
             history: history::load_newest_first(&crate::paths::history_path()),
             status: SharedString::from(match page {
-                UiPage::Settings => "Settings — save writes ~/.config/openatat/agent.toml",
+                UiPage::Settings | UiPage::Studio => {
+                    "Settings — save writes ~/.config/openatat/agent.toml"
+                }
                 UiPage::History => "History — prompts only; responses are not stored",
             }),
             confirm_clear: false,
@@ -250,7 +274,7 @@ impl Shell {
                 div()
                     .text_xs()
                     .text_color(rgb(0x8b8f99))
-                    .child("settings · history  ·  not the @@ overlay"),
+                    .child("settings · history · studio  ·  not the @@ overlay"),
             )
             .child(div().flex_1())
             .child(tab_btn(
@@ -358,6 +382,33 @@ impl Shell {
                 "Writes {}  ·  unknown keys and comments are kept",
                 crate::paths::agent_config_path().display()
             )))
+            .child(heading("Tools"))
+            .child(div().text_sm().text_color(rgb(0x9aa0a6)).child(
+                "Open Annotate… takes a local PNG or JPEG. Nothing is uploaded. \
+                 Video trim / Combine Images stay later.",
+            ))
+            .child(self.annotate_path.clone())
+            .child(action_btn(
+                "Open Annotate…",
+                rgb(0x3d5a9c),
+                cx,
+                |this, cx| this.open_annotate(cx),
+            ))
+    }
+
+    fn open_annotate(&mut self, cx: &mut Context<Self>) {
+        let raw = read_content(&self.annotate_path, cx);
+        let path = PathBuf::from(raw.trim());
+        match crate::studio::Document::open(&path) {
+            Ok(_) => {
+                studio_ui::open(cx, Some(path));
+                self.status = SharedString::from("Opened studio (local file, not uploaded)");
+            }
+            Err(e) => {
+                self.status = SharedString::from(e);
+            }
+        }
+        cx.notify();
     }
 
     fn render_history(

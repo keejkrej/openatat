@@ -11,7 +11,7 @@ Apache-2.0. No bundled LLM.
 | Process | Role |
 | --- | --- |
 | `openatatd` | Always-on native applet. Owns the `@@` overlay, **Orb**, C10 selection bar, trigger, insert, capture, and terminal handoff. Idle maps the **Orb** (not the overlay) and starts **no** GPU window. |
-| `openatat-ui` | gpui-ce, **on demand**. Settings + history browser (studio / first-run later). Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
+| `openatat-ui` | gpui-ce, **on demand**. Settings + history + **C17 studio / annotation**. First-run later. Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
 
@@ -206,7 +206,7 @@ Optional env:
 | `OPENATAT_INSERT` | Headless path also runs clipboard + insert. |
 | `OPENATAT_DEMO` | Same as `--demo`. |
 
-### Settings + History (`openatat-ui`)
+### Settings + History + Studio (`openatat-ui`)
 
 `openatat-ui` is a **separate** gpui-ce process. Activating it is fine — this is not the `@@` overlay. It exits when the last window closes.
 
@@ -214,16 +214,20 @@ Optional env:
 # Real window (needs gpui-ce + Linux GPU/Wayland headers; see below)
 cargo run -p openatat-ui --features gpui -- --settings
 cargo run -p openatat-ui --features gpui -- --history
+cargo run -p openatat-ui --features gpui -- --studio --image some.png
 
 # From a running build: daemon just execs the sibling binary
 cargo build -p openatat-ui --features gpui
-cargo run -p openatatd -- --settings    # or --history
+cargo run -p openatatd -- --settings    # or --history or --studio --image=some.png
 # IPC (newline JSON on $XDG_RUNTIME_DIR/openatat/trigger.sock):
 # {"cmd":"open-ui","page":"settings"}
 # {"cmd":"open-ui","page":"history"}
+# {"cmd":"open-ui","page":"studio","image":"/path/to/shot.png"}
 ```
 
 Settings writes `~/.config/openatat/agent.toml` (provider + argv list). Unknown keys and comments are kept. History reads `~/.local/share/openatat/history.jsonl` newest first; **Reuse** copies/prints the prompt only. Clear History asks for a second click. Screenshots and agent output are not in the file and are never shown.
+
+**Studio (C17)** annotates a **local** PNG or JPEG: arrows, shapes, freehand, highlighter, text, step counters, blur / pixelate / spotlight, crop. Edits stay individually undoable until **Export**, which writes `<stem>-annotated.png` next to the source (or a working copy under `~/.cache/openatat/studio/` if that directory is not writable). Nothing is uploaded. Tools → Open Annotate… in Settings takes a local path. Overlay still tiles have **Edit**: that only spawns `openatat-ui --studio --image <still>`. If `openatat-ui` is missing or was built without `gpui`, the applet logs the same rebuild hint Settings already uses and does **not** open a gpui window. If the @@ overlay is still up after export, the next click or keystroke on the popover reloads the annotated sibling into the tile. Otherwise fire `@@` again, or drop the annotated PNG on the Orb. Video trim / export (C18) is not built.
 
 The Permissions tab names what each optional Linux grant unlocks (grim, hyprctl, clipboard, AT-SPI, Fcitx5). It does **not** request OS permissions.
 
@@ -361,9 +365,9 @@ History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, 
 ## What is stubbed
 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
-- `openatat-ui` studio / first-run (Settings + history are implemented).
+- `openatat-ui` first-run tutorial (Settings + history + C17 studio are implemented).
 - Clipboard shelf, Nautilus (no selection D-Bus API).
-- Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10 / C16).
+- Recording, scrolling capture, OCR, video studio / trim (C18). C17 still annotation is live in `openatat-ui`.
 - Right-click Finder Service / Explorer context-menu DLL.
 - Windows tray icon (socket + right-click hide the Orb is enough for v1).
 
@@ -374,7 +378,7 @@ C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Wind
 ```
 crates/openatat-ipc     shared JSON protocol
 crates/openatatd        native applet
-crates/openatat-ui      gpui-ce Settings + history (`--features gpui`)
+crates/openatat-ui      gpui-ce Settings + history + C17 studio (`--features gpui`)
 ime/fcitx5-openatat     Fcitx5 module (product @@ trigger)
 omarchy/openatat        Omarchy 4 Quickshell bar chip (not Waybar)
 ```

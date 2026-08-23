@@ -15,6 +15,7 @@ use crate::handoff::{self, Handoff};
 use crate::history;
 use crate::selection::{self, PromptAction};
 use crate::session::Session;
+use crate::studio_attach::StudioAttach;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKey {
@@ -52,6 +53,7 @@ pub struct OverlayController {
     pub finder_files: Vec<PathBuf>,
     pub dropped_files: Vec<PathBuf>,
     pub dropped_text: Vec<String>,
+    pub studio: StudioAttach,
     pub width: u32,
     pub height: u32,
 }
@@ -88,6 +90,7 @@ impl OverlayController {
             finder_files: session.finder_files.clone(),
             dropped_files: session.dropped_files.clone(),
             dropped_text: session.dropped_text.clone(),
+            studio: StudioAttach::default(),
             width,
             height,
         }
@@ -98,9 +101,7 @@ impl OverlayController {
         if !self.preview.is_empty() {
             session.preview = Some(self.preview.clone());
         }
-        if !self.has_tile {
-            session.still = None;
-        }
+        crate::studio_attach::apply_still_bytes(self.has_tile, self.still_png.clone(), session);
         session.finder_cwd = self.finder_cwd.clone();
         session.finder_files = self.finder_files.clone();
         session.dropped_files = self.dropped_files.clone();
@@ -112,13 +113,15 @@ impl OverlayController {
             Phase::Bar => "mouse selection · Ask / Copy / Search / Summarize / Explain",
             Phase::Prompt => {
                 if self.has_tile {
-                    "C1 still attached · click remove to drop it"
+                    "C1 still attached · remove drops it · Edit opens studio"
                 } else {
                     "no still · capture missing or tile removed"
                 }
             }
             Phase::Running => "scratch cwd · prompt passed as data",
-            Phase::Preview => "result is not in your document until Tab · Super+Return / ⌘Return handoff",
+            Phase::Preview => {
+                "result is not in your document until Tab · Super+Return / ⌘Return handoff"
+            }
             Phase::Refine => "same attachments · new result replaces the old",
         };
         let prompt = if self.phase == Phase::Refine {
@@ -152,7 +155,21 @@ impl OverlayController {
         }
     }
 
+    fn poll_studio(&mut self) -> Vec<OverlayEffect> {
+        if let Some(png) = self.studio.take_export() {
+            self.still_png = Some(png.clone());
+            if let Some(still) = crate::studio_attach::still_from_png(png) {
+                self.thumb = still.thumbnail_argb(120, 64).ok();
+            }
+            self.has_tile = true;
+            self.dirty = true;
+            return vec![OverlayEffect::Redraw];
+        }
+        Vec::new()
+    }
+
     pub fn handle_key(&mut self, key: OverlayKey, text: Option<&str>) -> Vec<OverlayEffect> {
+        let _ = self.poll_studio();
         match key {
             OverlayKey::Escape => {
                 self.end = Some(OverlayEnd::Cancelled);
@@ -233,11 +250,12 @@ impl OverlayController {
     }
 
     pub fn handle_click(&mut self, x: f64, y: f64) -> Vec<OverlayEffect> {
+        let mut fx = self.poll_studio();
         if self.phase == Phase::Bar {
             if let Some(hit) = draw::hit_bar(x, y, self.width) {
                 return self.on_bar(hit);
             }
-            return Vec::new();
+            return fx;
         }
         if draw::hit_close(x, y, self.width) {
             self.end = Some(OverlayEnd::Cancelled);
@@ -246,6 +264,14 @@ impl OverlayController {
         if draw::hit_handoff(x, y, self.phase) {
             return self.run_handoff();
         }
+        if draw::hit_edit(x, y, self.has_tile) {
+            if let Some(png) = self.still_png.clone() {
+                self.studio.edit(&png);
+            }
+            self.dirty = true;
+            fx.push(OverlayEffect::Redraw);
+            return fx;
+        }
         if draw::hit_remove(x, y, self.has_tile) {
             self.has_tile = false;
             self.thumb = None;
@@ -253,7 +279,7 @@ impl OverlayController {
             self.dirty = true;
             return vec![OverlayEffect::Redraw];
         }
-        Vec::new()
+        fx
     }
 
     pub fn on_bar(&mut self, hit: draw::BarHit) -> Vec<OverlayEffect> {
@@ -510,5 +536,17 @@ mod tests {
         assert_eq!(c.prompt, "hi");
         c.handle_key(OverlayKey::Backspace, None);
         assert_eq!(c.prompt, "h");
+    }
+
+    #[test]
+    fn edit_click_does_not_drop_the_tile() {
+        let mut c = OverlayController::from_session(&empty_session(), OverlayKind::Prompt);
+        c.has_tile = true;
+        c.still_png = Some(b"not-a-png".to_vec());
+        c.handle_click(160.0, 214.0);
+        assert!(c.has_tile);
+        assert!(c.still_png.is_some());
+        c.handle_click(160.0, 190.0);
+        assert!(!c.has_tile);
     }
 }

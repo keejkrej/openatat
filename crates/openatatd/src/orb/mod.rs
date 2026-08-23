@@ -197,16 +197,45 @@ mod source_policy_tests {
 
     #[test]
     fn orb_and_overlay_are_not_gpui() {
-        let linux = read("src/orb/linux.rs");
-        let mac = read("src/orb/macos.rs");
-        let win = read("src/orb/windows.rs");
-        for (name, src) in [("linux", &linux), ("macos", &mac), ("windows", &win)] {
-            assert!(!src.contains("gpui::"), "{name} Orb must not use gpui");
-            assert!(!src.contains("iced::"), "{name} Orb must not use iced");
-            assert!(!src.contains("gtk4-layer-shell"), "{name}");
+        let files = [
+            "src/orb/linux.rs",
+            "src/orb/macos.rs",
+            "src/orb/windows.rs",
+            "src/orb/draw.rs",
+            "src/orb/policy.rs",
+            "src/overlay/mod.rs",
+            "src/overlay/draw.rs",
+            "src/overlay/controller.rs",
+            "src/overlay/linux.rs",
+            "src/overlay/macos.rs",
+            "src/overlay/windows.rs",
+        ];
+        for rel in files {
+            let src = read(rel);
+            let code = src.split("mod tests").next().unwrap_or(&src);
+            assert!(!code.contains("gpui::"), "{rel} must not use gpui");
+            assert!(!code.contains("iced::"), "{rel} must not use iced");
+            assert!(!code.contains("ScreenCaptureFrame"), "{rel}");
         }
         let overlay = read("src/overlay/mod.rs");
         assert!(overlay.contains("Not gpui") || overlay.contains("not gpui"));
+    }
+
+    #[test]
+    fn studio_lives_in_openatat_ui_not_the_applet() {
+        assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/studio.rs")
+            .exists());
+        let spawn = read("src/ui_spawn.rs");
+        let spawn_code = spawn.split("mod tests").next().unwrap_or(&spawn);
+        assert!(spawn_code.contains("--studio"));
+        assert!(spawn_code.contains("--image"));
+        assert!(spawn_code.contains("never links gpui"));
+        assert!(!spawn_code.contains("gpui::"));
+        let attach = read("src/studio_attach.rs");
+        let attach_code = attach.split("mod tests").next().unwrap_or(&attach);
+        assert!(!attach_code.contains("gpui::"));
+        assert!(attach_code.contains("spawn"));
     }
 
     #[test]
@@ -247,7 +276,10 @@ mod source_policy_tests {
     #[test]
     fn macos_orb_is_nonactivating_panel() {
         let mac = read("src/orb/macos.rs");
-        assert!(mac.contains("NonactivatingPanel") || mac.contains("NSWindowStyleMaskNonactivatingPanel"));
+        assert!(
+            mac.contains("NonactivatingPanel")
+                || mac.contains("NSWindowStyleMaskNonactivatingPanel")
+        );
         assert!(mac.contains("NSPanel"));
     }
 }

@@ -38,6 +38,7 @@ use crate::handoff::{self, Handoff};
 use crate::history;
 use crate::selection::{self, PromptAction};
 use crate::session::Session;
+use crate::studio_attach::StudioAttach;
 use openatat_ipc::EntryPoint;
 
 pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
@@ -118,6 +119,7 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         dropped_text: session.dropped_text.clone(),
         finder_cwd: session.finder_cwd.clone(),
         finder_files: session.finder_files.clone(),
+        studio: StudioAttach::default(),
     };
 
     while overlay.end.is_none() {
@@ -130,9 +132,7 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     if !overlay.preview.is_empty() {
         session.preview = Some(overlay.preview);
     }
-    if !overlay.has_tile {
-        session.still = None;
-    }
+    crate::studio_attach::apply_still_bytes(overlay.has_tile, overlay.still_png, session);
     session.dropped_files = overlay.dropped_files;
     session.dropped_text = overlay.dropped_text;
     Ok(overlay.end.unwrap_or(OverlayEnd::Cancelled))
@@ -169,15 +169,28 @@ struct Overlay {
     dropped_text: Vec<String>,
     finder_cwd: Option<std::path::PathBuf>,
     finder_files: Vec<std::path::PathBuf>,
+    studio: StudioAttach,
 }
 
 impl Overlay {
+    fn poll_studio(&mut self, qh: &QueueHandle<Self>) {
+        if let Some(png) = self.studio.take_export() {
+            self.still_png = Some(png.clone());
+            if let Some(still) = crate::studio_attach::still_from_png(png) {
+                self.thumb = still.thumbnail_argb(120, 64).ok();
+            }
+            self.has_tile = true;
+            self.dirty = true;
+            self.draw(qh);
+        }
+    }
+
     fn ui_frame(&self) -> Frame {
         let status = match self.phase {
             Phase::Bar => "mouse selection · Ask / Copy / Search / Summarize / Explain",
             Phase::Prompt => {
                 if self.has_tile {
-                    "C1 still attached · click remove to drop it"
+                    "C1 still attached · remove drops it · Edit opens studio"
                 } else {
                     "no still · grim missing or tile removed"
                 }
@@ -236,6 +249,7 @@ impl Overlay {
     }
 
     fn handle_key(&mut self, event: KeyEvent, qh: &QueueHandle<Self>) {
+        self.poll_studio(qh);
         match event.keysym {
             Keysym::Escape => {
                 self.end = Some(OverlayEnd::Cancelled);
@@ -742,10 +756,17 @@ impl PointerHandler for Overlay {
                     }
                     continue;
                 }
+                self.poll_studio(qh);
                 if draw::hit_close(x, y, self.width) {
                     self.end = Some(OverlayEnd::Cancelled);
                 } else if draw::hit_handoff(x, y, self.phase) {
                     self.run_handoff(qh);
+                } else if draw::hit_edit(x, y, self.has_tile) {
+                    if let Some(png) = self.still_png.clone() {
+                        self.studio.edit(&png);
+                    }
+                    self.dirty = true;
+                    self.draw(qh);
                 } else if draw::hit_remove(x, y, self.has_tile) {
                     self.has_tile = false;
                     self.thumb = None;
