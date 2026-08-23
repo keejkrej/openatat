@@ -70,6 +70,39 @@ fn last_error() -> Option<String> {
     LAST_ERROR.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
+pub fn last_error_message() -> Option<String> {
+    last_error()
+}
+
+pub fn clear_last_error() {
+    set_last_error(None);
+    publish_presence();
+}
+
+/// Orb click. Does not auto-attach C1. Hide does not block this if the Orb
+/// itself is the source; hide only unmaps the resting Orb.
+pub fn summon_orb_click() {
+    if !try_enter() {
+        return;
+    }
+    match crate::orb::run_orb_click() {
+        Ok(_) => set_last_error(None),
+        Err(e) => set_last_error(Some(e.to_string())),
+    }
+    leave();
+}
+
+pub fn summon_orb_drop(drops: Vec<crate::orb::OrbDrop>) {
+    if !try_enter() {
+        return;
+    }
+    match crate::orb::run_orb_drop(drops) {
+        Ok(_) => set_last_error(None),
+        Err(e) => set_last_error(Some(e.to_string())),
+    }
+    leave();
+}
+
 /// Bar-chip view: idle | busy | error. `ok` is only a mutating-command ack.
 pub fn presence_reply() -> DaemonReply {
     if is_busy() {
@@ -124,6 +157,7 @@ pub fn run_daemon() -> Result<()> {
     let _ = (fcitx.name(), ibus.name());
 
     start_presence_and_selection();
+    crate::orb::start();
     accept_loop()
 }
 
@@ -135,7 +169,7 @@ fn accept_loop() -> Result<()> {
         "openatatd: status at {} (idle|busy|error)",
         status_file_path().display()
     );
-    eprintln!("openatatd: idle — no overlay surface, no GPU window");
+    eprintln!("openatatd: idle — Orb mapped (unless hidden), overlay unmapped, no GPU window");
 
     #[cfg(unix)]
     {
@@ -248,6 +282,12 @@ fn parse_request(line: &str) -> Result<DaemonRequest> {
     if line == "status" || line == "ping" {
         return Ok(DaemonRequest::Status);
     }
+    if line == "hide-orb" {
+        return Ok(DaemonRequest::HideOrb);
+    }
+    if line == "show-orb" {
+        return Ok(DaemonRequest::ShowOrb);
+    }
     DaemonRequest::decode(line).map_err(Error::from)
 }
 
@@ -282,6 +322,14 @@ fn dispatch(req: DaemonRequest) -> DaemonReply {
             };
             leave();
             reply
+        }
+        DaemonRequest::HideOrb => {
+            crate::orb::hide();
+            DaemonReply::Ok
+        }
+        DaemonRequest::ShowOrb => {
+            crate::orb::show();
+            DaemonReply::Ok
         }
         DaemonRequest::SelectionProbe => {
             if !try_enter() {
@@ -421,6 +469,14 @@ pub fn send_status() -> Result<()> {
     send_line(&DaemonRequest::Status)
 }
 
+pub fn send_hide_orb() -> Result<()> {
+    send_line(&DaemonRequest::HideOrb)
+}
+
+pub fn send_show_orb() -> Result<()> {
+    send_line(&DaemonRequest::ShowOrb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,6 +505,12 @@ mod tests {
         assert_eq!(
             parse_request(r#"{"cmd":"ping"}"#).unwrap(),
             DaemonRequest::Ping
+        );
+        assert_eq!(parse_request("hide-orb\n").unwrap(), DaemonRequest::HideOrb);
+        assert_eq!(parse_request("show-orb\n").unwrap(), DaemonRequest::ShowOrb);
+        assert_eq!(
+            parse_request(r#"{"cmd":"hide-orb"}"#).unwrap(),
+            DaemonRequest::HideOrb
         );
     }
 
@@ -543,6 +605,17 @@ mod tests {
         }
         server.join().unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hide_orb_does_not_disable_typed_at_at() {
+        crate::orb::hide();
+        assert!(!crate::orb::is_shown());
+        assert!(crate::orb::policy::typed_trigger_allowed(false));
+        assert_eq!(dispatch(DaemonRequest::HideOrb), DaemonReply::Ok);
+        crate::orb::show();
+        assert!(crate::orb::is_shown());
+        assert_eq!(dispatch(DaemonRequest::ShowOrb), DaemonReply::Ok);
     }
 
     #[test]

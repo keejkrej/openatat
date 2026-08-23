@@ -34,6 +34,8 @@ pub enum Attachment {
     WorkingDir { path: std::path::PathBuf },
     /// Finder selected file (Mac Automation). Never a title-bar guess.
     File { path: std::path::PathBuf },
+    /// Text dropped on the Orb (C16).
+    Snippet { text: String },
 }
 
 #[derive(Debug, Clone)]
@@ -315,6 +317,10 @@ pub(crate) fn write_attachments(prompt: &str, attachments: &[Attachment], scratc
             }
             Attachment::File { path } => {
                 files.push(path.display().to_string());
+            }
+            Attachment::Snippet { text } => {
+                out.push_str("\n\n[OpenAtat] Dropped text:\n");
+                out.push_str(text);
             }
         }
     }

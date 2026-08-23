@@ -50,6 +50,8 @@ pub struct OverlayController {
     pub prompt_action: Option<PromptAction>,
     pub finder_cwd: Option<PathBuf>,
     pub finder_files: Vec<PathBuf>,
+    pub dropped_files: Vec<PathBuf>,
+    pub dropped_text: Vec<String>,
     pub width: u32,
     pub height: u32,
 }
@@ -84,6 +86,8 @@ impl OverlayController {
             prompt_action: None,
             finder_cwd: session.finder_cwd.clone(),
             finder_files: session.finder_files.clone(),
+            dropped_files: session.dropped_files.clone(),
+            dropped_text: session.dropped_text.clone(),
             width,
             height,
         }
@@ -99,6 +103,8 @@ impl OverlayController {
         }
         session.finder_cwd = self.finder_cwd.clone();
         session.finder_files = self.finder_files.clone();
+        session.dropped_files = self.dropped_files.clone();
+        session.dropped_text = self.dropped_text.clone();
     }
 
     pub fn ui_frame(&self) -> Frame {
@@ -129,6 +135,13 @@ impl OverlayController {
             let n = self.finder_files.len();
             let cwd = if self.finder_cwd.is_some() { 1 } else { 0 };
             status.push_str(&format!(" · Finder {cwd} cwd + {n} files"));
+        }
+        if !self.dropped_files.is_empty() || !self.dropped_text.is_empty() {
+            status.push_str(&format!(
+                " · drop {} files + {} text",
+                self.dropped_files.len(),
+                self.dropped_text.len()
+            ));
         }
         Frame {
             phase: self.phase,
@@ -432,6 +445,12 @@ impl OverlayController {
         for path in &self.finder_files {
             out.push(Attachment::File { path: path.clone() });
         }
+        for path in &self.dropped_files {
+            out.push(Attachment::File { path: path.clone() });
+        }
+        for text in &self.dropped_text {
+            out.push(Attachment::Snippet { text: text.clone() });
+        }
         out
     }
 }
@@ -454,6 +473,8 @@ mod tests {
             placement: None,
             finder_cwd: None,
             finder_files: Vec::new(),
+            dropped_files: Vec::new(),
+            dropped_text: Vec::new(),
         }
     }
 

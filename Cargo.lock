@@ -3802,6 +3802,7 @@ dependencies = [
  "core-foundation 0.10.0",
  "font8x8",
  "image",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-core-graphics",

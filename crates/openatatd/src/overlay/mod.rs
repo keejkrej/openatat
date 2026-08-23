@@ -1,8 +1,9 @@
 //! Native overlay. Not gpui.
 //!
 //! Linux: one compositor client hosts both the `@@` popover and the C10
-//! selection bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no surface.
-//! macOS: NSPanel nonactivating. Windows: `WS_EX_NOACTIVATE` popover.
+//! selection bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no overlay
+//! surface; the Orb is a separate layer-shell surface. macOS: NSPanel
+//! nonactivating. Windows: `WS_EX_NOACTIVATE` popover.
 //! Session / Tab / R / handoff live in [`controller`].
 
 use crate::capture::Still;
@@ -10,7 +11,7 @@ use crate::error::Result;
 use crate::session::Session;
 
 #[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
-mod controller;
+pub(crate) mod controller;
 mod draw;
 
 #[cfg(target_os = "linux")]

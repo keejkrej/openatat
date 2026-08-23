@@ -1,5 +1,5 @@
-//! Always-on native applet. Owns the overlay, trigger, capture, insert,
-//! and the C10 selection bar. Idle path maps no Wayland surface and starts
+//! Always-on native applet. Owns the overlay, Orb, trigger, capture, insert,
+//! and the C10 selection bar. Idle maps the Orb (not the overlay) and starts
 //! no gpui window.
 
 pub mod a11y;
@@ -17,6 +17,7 @@ pub mod insert;
 pub mod macos_runtime;
 #[cfg(target_os = "windows")]
 pub mod windows_runtime;
+pub mod orb;
 pub mod overlay;
 pub mod paths;
 pub mod platform;
@@ -36,6 +37,9 @@ pub struct Cli {
     pub trigger_client: bool,
     pub selection_client: bool,
     pub status_client: bool,
+    pub hide_orb_client: bool,
+    pub show_orb_client: bool,
+    pub orb_click: bool,
     pub open_ui: Option<UiPage>,
     pub prompt: Option<String>,
     pub selection_text: Option<String>,
@@ -50,6 +54,9 @@ impl Cli {
             trigger_client: false,
             selection_client: false,
             status_client: false,
+            hide_orb_client: false,
+            show_orb_client: false,
+            orb_click: false,
             open_ui: None,
             prompt: None,
             selection_text: None,
@@ -65,6 +72,9 @@ impl Cli {
                 "trigger" => cli.trigger_client = true,
                 "selection" => cli.selection_client = true,
                 "status" | "ping" => cli.status_client = true,
+                "hide-orb" => cli.hide_orb_client = true,
+                "show-orb" => cli.show_orb_client = true,
+                "--orb-click" => cli.orb_click = true,
                 "--settings" => cli.open_ui = Some(UiPage::Settings),
                 "--history" => cli.open_ui = Some(UiPage::History),
                 "--help" | "-h" => {
@@ -100,7 +110,10 @@ USAGE:
   openatatd --headless      One session without a layer surface
   openatatd trigger         Summon a running daemon (dev path, not a hotkey)
   openatatd status          Presence for the Omarchy bar chip (idle|busy|error)
+  openatatd hide-orb        Hide the resting Orb for this launch (@@ still works)
+  openatatd show-orb        Show the resting Orb again
   openatatd selection       Probe the focused AT-SPI selection as a mouse-up
+  openatatd --orb-click     Empty Orb session (no C1 still); headless or overlay
   openatatd --settings      Spawn openatat-ui Settings (activating; not the overlay)
   openatatd --history       Spawn openatat-ui History
 
@@ -133,7 +146,21 @@ mod tests {
         assert!(!cli.trigger_client);
         assert!(!cli.selection_client);
         assert!(!cli.status_client);
+        assert!(!cli.hide_orb_client);
+        assert!(!cli.orb_click);
         assert!(cli.open_ui.is_none());
+    }
+
+    #[test]
+    fn parse_hide_orb_and_orb_click() {
+        let cli = Cli::parse(["hide-orb"]);
+        assert!(cli.hide_orb_client);
+        let cli = Cli::parse(["show-orb"]);
+        assert!(cli.show_orb_client);
+        let cli = Cli::parse(["--headless", "--orb-click", "--prompt=hi"]);
+        assert!(cli.orb_click);
+        assert!(cli.headless);
+        assert_eq!(cli.prompt.as_deref(), Some("hi"));
     }
 
     #[test]
@@ -174,6 +201,12 @@ pub fn run(cli: Cli) -> Result<()> {
     if cli.status_client {
         return daemon::send_status();
     }
+    if cli.hide_orb_client {
+        return daemon::send_hide_orb();
+    }
+    if cli.show_orb_client {
+        return daemon::send_show_orb();
+    }
     if let Some(selected) = cli.selection_text.clone() {
         let action = cli.action.unwrap_or(PromptAction::Ask);
         let prompt = cli.prompt.clone().unwrap_or_default();
@@ -186,6 +219,26 @@ pub fn run(cli: Cli) -> Result<()> {
         let sel = crate::a11y::TextSelection::from_parts(selected, 0, end_off, None, None);
         let end = session::run_selection_bar(sel, None)?;
         eprintln!("openatatd: session ended: {end:?}");
+        return Ok(());
+    }
+    if cli.orb_click {
+        let prompt = cli
+            .prompt
+            .or_else(|| std::env::var("OPENATAT_PROMPT").ok())
+            .unwrap_or_default();
+        if cli.headless || !platform::has_overlay_display() {
+            let mut session = session::Session::begin_orb_click();
+            session.prompt = if prompt.is_empty() {
+                "hello from openatat".into()
+            } else {
+                prompt
+            };
+            let end = session::run_headless_session(session)?;
+            eprintln!("openatatd: orb-click session ended: {end:?}");
+            return Ok(());
+        }
+        let end = session::run_orb_click()?;
+        eprintln!("openatatd: orb-click session ended: {end:?}");
         return Ok(());
     }
     if cli.once {

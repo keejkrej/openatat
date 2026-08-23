@@ -10,16 +10,16 @@ Apache-2.0. No bundled LLM.
 
 | Process | Role |
 | --- | --- |
-| `openatatd` | Always-on native applet. Owns the `@@` overlay, C10 selection bar, trigger, insert, capture, terminal handoff, and (later) Orb. Idle maps **no** surface and starts **no** GPU window. |
+| `openatatd` | Always-on native applet. Owns the `@@` overlay, **Orb**, C10 selection bar, trigger, insert, capture, and terminal handoff. Idle maps the **Orb** (not the overlay) and starts **no** GPU window. |
 | `openatat-ui` | gpui-ce, **on demand**. Settings + history browser (studio / first-run later). Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
 
-- **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surface inside `openatatd`, software `wl_shm`. Keyboard `OnDemand` only while the prompt or selection bar is up. The selection bar is the same compositor client as the `@@` popover — not a gpui window.
-- **macOS:** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel` (`canJoinAllSpaces`, `fullScreenAuxiliary`). Never becomes the active app. Trigger is a listen-only event tap feeding `ImeFilter` — not a global summon hotkey.
+- **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surfaces inside `openatatd`, software `wl_shm`. The **Orb** is mapped at idle (`KeyboardInteractivity::None`, input region = the circle). The overlay / selection bar use `OnDemand` only while up. Neither is a gpui window.
+- **macOS:** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel` (`canJoinAllSpaces`, `fullScreenAuxiliary`) for the overlay **and** the Orb. Never becomes the active app. `NSStatusItem` **Show Orb** toggle (this launch). Trigger is a listen-only event tap feeding `ImeFilter` — not a global summon hotkey.
 - **Windows:** `WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED`. Never calls `SetForegroundWindow`. Trigger is a process-local keyboard hook (Raw Input fallback) feeding `ImeFilter` — not a global summon hotkey.
 
-Omarchy 4 is Hyprland + Quickshell (Waybar is gone). Do not add Waybar modules. The Omarchy presence path is the Quickshell bar chip in `omarchy/openatat/` (`openatat.chip`). It is not a second overlay and not the Orb.
+Omarchy 4 is Hyprland + Quickshell (Waybar is gone). Do not add Waybar modules. The Omarchy bar chip in `omarchy/openatat/` (`openatat.chip`) is **not** the Orb and must not grow into one.
 
 ## How to run the Linux spike (Hyprland)
 
@@ -54,6 +54,32 @@ cargo run -p openatatd -- trigger
 ```
 
 The daemon listens on `$XDG_RUNTIME_DIR/openatat/trigger.sock`. The Fcitx5 addon sends the same JSON (`source: ime`). A Hyprland bind is not the product path — see SPEC.md §6.
+
+### The Orb (Omarchy)
+
+`openatatd` maps a small round `@—@` avatar on the focused output. It never becomes the active app (layer-shell Overlay, exclusive zone 0, keyboard **none**). Eyes follow the pointer (`hyprctl cursorpos` plus hover).
+
+```bash
+# terminal A — Orb is mapped at idle
+cargo run -p openatatd
+
+# click the Orb → empty @@ prompt (no C1 still, no attachments)
+# type @@ in a text field → still auto-attaches C1 (grim)
+# drag a file / image / text onto the Orb → those become tiles (C16)
+# drag the Orb itself to move it (position persisted per output)
+# right-click the Orb, or:
+cargo run -p openatatd -- hide-orb
+# hide lasts this launch only; @@ / selection bar still work
+# cargo run -p openatatd -- show-orb
+```
+
+While the agent runs, the Orb shows a small bubble and **Esc** on the overlay is the only cancel — a stray click on the Orb does not dismiss work. An error becomes a wider pill with an Esc button.
+
+Headless empty Orb session (no still):
+
+```bash
+cargo run -p openatatd -- --headless --orb-click --prompt='hello from the orb'
+```
 
 Presence for the Omarchy bar chip (does not summon `@@`):
 
@@ -240,6 +266,8 @@ Always-on daemon (accessory `NSApplication`, no Dock bounce):
 cargo run -p openatatd
 ```
 
+The Orb is a second nonactivating `NSPanel` (circle hit-test, never the active app). Click it for an empty prompt (no C1 still). Drag files / images / text onto it for tiles. **Show Orb** in the `@@` menu extra hides it for this launch only. Typed `@@` still auto-attaches C1.
+
 Type `@@` in a text field (Input Monitoring + Accessibility). The two `@` characters are swallowed via AX replace (never in a password field) and an `NSPanel` nonactivating overlay opens. `Esc` cancels. `Tab` copies to `NSPasteboard` then AX-inserts if the frontmost app + focused element still match. `⌘Return` hands off to Terminal / iTerm / Ghostty / kitty in a scratch cwd.
 
 Without Input Monitoring, the listen-only tap is idle. `--demo` and the unix socket still work:
@@ -270,6 +298,8 @@ Needs a native MSVC toolchain (`x86_64-pc-windows-msvc`) and the Windows 10+ SDK
 cargo build -p openatatd
 cargo run -p openatatd
 ```
+
+The Orb is a second `WS_EX_NOACTIVATE | LAYERED` window (circle hit region). Click it for an empty prompt (no C1). Drag files onto it (`DragAcceptFiles`). Right-click or `openatatd hide-orb` hides it for this launch. Tray comes later. Never `SetForegroundWindow`.
 
 Type `@@` in a text field. The process-local keyboard hook feeds `ImeFilter` (UIA `IsPassword` / Win32 `ES_PASSWORD` re-probed every key; IME composition ignored). The two `@` characters are swallowed via UIA ValuePattern replace (never into a password field) and a `WS_EX_NOACTIVATE` overlay opens. OpenAtat never calls `SetForegroundWindow`. `Esc` cancels. `Tab` writes the clipboard first, re-checks `GetForegroundWindow` + UIA RuntimeId, then ValuePattern / a single Ctrl+V. Browsers paste; they are not typed per-key. `Win+Return` (or the **Handoff** button) opens Windows Terminal (`wt.exe -d <scratch> -- <cli>`) with the prompt as data.
 
@@ -332,11 +362,12 @@ History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, 
 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
 - `openatat-ui` studio / first-run (Settings + history are implemented).
-- Orb, clipboard shelf, Nautilus (no selection D-Bus API).
-- Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10).
+- Clipboard shelf, Nautilus (no selection D-Bus API).
+- Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10 / C16).
 - Right-click Finder Service / Explorer context-menu DLL.
+- Windows tray icon (socket + right-click hide the Orb is enough for v1).
 
-C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. Terminal handoff is implemented on Linux, macOS, and Windows. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). Typed `@@` still auto-attaches C1; **Orb click does not**. C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. C16 (drag-drop onto the Orb) is live on Wayland / macOS / Win32 drop targets — file-manager titles are never scraped. Terminal handoff is implemented on Linux, macOS, and Windows. The Orb is a native layer-shell / NSPanel / `WS_EX_NOACTIVATE` surface in `openatatd`, not gpui and not the Quickshell chip. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
 
 ## Crate layout
 

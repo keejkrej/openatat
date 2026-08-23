@@ -27,6 +27,10 @@ pub struct Session {
     pub finder_cwd: Option<PathBuf>,
     /// Finder selected files. Only from Automation, never the title bar.
     pub finder_files: Vec<PathBuf>,
+    /// C16: files dropped on the Orb. Real paths from the drop protocol.
+    pub dropped_files: Vec<PathBuf>,
+    /// C16: text dropped on the Orb.
+    pub dropped_text: Vec<String>,
 }
 
 impl Session {
@@ -60,7 +64,36 @@ impl Session {
             placement: None,
             finder_cwd,
             finder_files,
+            dropped_files: Vec::new(),
+            dropped_text: Vec::new(),
         }
+    }
+
+    /// Orb click: empty prompt. No C1 still, no Finder tiles, nothing the
+    /// user did not add. Typed `@@` still uses [`Self::begin`].
+    pub fn begin_orb_click() -> Self {
+        debug_assert!(!crate::orb::auto_attach_c1(EntryPoint::Orb));
+        Self {
+            source: TriggerSource::Demo,
+            entry: EntryPoint::Orb,
+            focus: focus::snapshot(),
+            still: None,
+            prompt: String::new(),
+            preview: None,
+            selection: None,
+            placement: None,
+            finder_cwd: None,
+            finder_files: Vec::new(),
+            dropped_files: Vec::new(),
+            dropped_text: Vec::new(),
+        }
+    }
+
+    /// Orb drop (C16). Still is only raw image bytes from the drag, never grim.
+    pub fn begin_orb_drop(drops: Vec<crate::orb::OrbDrop>) -> Self {
+        let mut session = Self::begin_orb_click();
+        crate::orb::apply_drops(&mut session, drops);
+        session
     }
 
     pub fn begin_selection(sel: TextSelection, pointer: Option<(i32, i32)>) -> Self {
@@ -81,6 +114,8 @@ impl Session {
             placement,
             finder_cwd: None,
             finder_files: Vec::new(),
+            dropped_files: Vec::new(),
+            dropped_text: Vec::new(),
         }
     }
 }
@@ -94,16 +129,30 @@ pub enum SessionEnd {
     HandedOff,
 }
 
+pub fn run_orb_click() -> Result<SessionEnd> {
+    let mut session = Session::begin_orb_click();
+    run_overlay_session(&mut session)
+}
+
+pub fn run_orb_drop(drops: Vec<crate::orb::OrbDrop>) -> Result<SessionEnd> {
+    let mut session = Session::begin_orb_drop(drops);
+    run_overlay_session(&mut session)
+}
+
 pub fn run_interactive(source: TriggerSource) -> Result<SessionEnd> {
     let mut session = Session::begin(source);
-    match overlay::run(&mut session) {
+    run_overlay_session(&mut session)
+}
+
+fn run_overlay_session(session: &mut Session) -> Result<SessionEnd> {
+    match overlay::run(session) {
         Ok(OverlayEnd::Cancelled) => Ok(SessionEnd::Cancelled),
         Ok(OverlayEnd::Copied) => Ok(SessionEnd::CopiedOnly),
         Ok(OverlayEnd::Handoff) => Ok(SessionEnd::HandedOff),
         Ok(OverlayEnd::Tab) => finish_tab(&session),
         Err(e) if e.is_wayland_connect() => {
             eprintln!("openatatd: overlay unavailable ({e}); headless fallback");
-            run_headless_on(session)
+            run_headless_on(session.clone())
         }
         Err(e) => Err(e),
     }
@@ -143,6 +192,10 @@ pub fn run_headless_selection(
         PromptAction::Summarize => "Summarize".into(),
         PromptAction::Explain => "Explain".into(),
     };
+    run_headless_on(session)
+}
+
+pub(crate) fn run_headless_session(session: Session) -> Result<SessionEnd> {
     run_headless_on(session)
 }
 
@@ -207,6 +260,7 @@ pub fn session_attachments(session: &Session) -> Vec<Attachment> {
     for path in &session.finder_files {
         out.push(Attachment::File { path: path.clone() });
     }
+    out.extend(crate::orb::policy::drop_attachments(session));
     out
 }
 
@@ -245,6 +299,17 @@ mod tests {
         let hist = std::fs::read_to_string(&hist_path).unwrap();
         assert!(hist.contains("friendlier"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn orb_click_skips_still_and_typed_path_still_requests_c1() {
+        let orb = Session::begin_orb_click();
+        assert_eq!(orb.entry, EntryPoint::Orb);
+        assert!(orb.still.is_none());
+        assert!(orb.finder_files.is_empty());
+        assert!(orb.dropped_files.is_empty());
+        assert!(!crate::orb::auto_attach_c1(orb.entry));
+        assert!(crate::orb::auto_attach_c1(EntryPoint::TextField));
     }
 
     #[test]
