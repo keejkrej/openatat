@@ -422,7 +422,11 @@ mod tests {
         assert!(widget.is_file(), "{}", widget.display());
         let qml = std::fs::read_to_string(&widget).unwrap();
         assert!(qml.contains("open-ui"));
+        assert!(qml.contains("FileView"));
         assert!(!qml.contains("waybar"));
-        assert!(!qml.contains("{\"cmd\":\"trigger\"}"));
+        assert!(
+            !qml.contains("sendLine(\"{\\\"cmd\\\":\\\"trigger\\\"}\")"),
+            "chip must not summon the overlay"
+        );
     }
 }
