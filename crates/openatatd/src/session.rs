@@ -1,5 +1,6 @@
 use openatat_ipc::{EntryPoint, FocusSnapshot, TriggerSource};
 
+use crate::agent::{self, Attachment, Launch};
 use crate::capture::{self, Still};
 use crate::error::Result;
 use crate::focus;
@@ -68,7 +69,13 @@ fn run_headless_on(mut session: Session) -> Result<SessionEnd> {
             std::env::var("OPENATAT_PROMPT").unwrap_or_else(|_| "hello from openatat".into());
     }
     crate::history::append_prompt(session.entry, &session.prompt)?;
-    let preview = crate::agent::run_dummy(&session.prompt)?;
+    let attachments = session_attachments(&session);
+    let preview = agent::run_launch(&Launch {
+        prompt: &session.prompt,
+        attachments: &attachments,
+        resolve: None,
+        copy_text: crate::clipboard::copy_text,
+    })?;
     session.preview = Some(preview);
     eprintln!(
         "openatatd: preview (headless):\n{}",
@@ -79,6 +86,15 @@ fn run_headless_on(mut session: Session) -> Result<SessionEnd> {
     } else {
         Ok(SessionEnd::CopiedOnly)
     }
+}
+
+pub fn session_attachments(session: &Session) -> Vec<Attachment> {
+    session
+        .still
+        .as_ref()
+        .map(|s| Attachment::Still { png: s.png.clone() })
+        .into_iter()
+        .collect()
 }
 
 fn finish_tab(session: &Session) -> Result<SessionEnd> {
@@ -103,6 +119,11 @@ mod tests {
         std::env::set_var("XDG_DATA_HOME", &dir);
         std::env::remove_var("OPENATAT_AGENT");
         std::env::remove_var("OPENATAT_INSERT");
+        let cfg = dir.join("config");
+        std::fs::create_dir_all(cfg.join("openatat")).unwrap();
+        std::fs::write(cfg.join("openatat/agent.toml"), "provider = \"dummy\"\n").unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", &cfg);
+        std::env::set_var("XDG_CACHE_HOME", dir.join("cache"));
         let end = run_headless(TriggerSource::Demo, "friendlier").unwrap();
         assert_eq!(end, SessionEnd::CopiedOnly);
         let hist = std::fs::read_to_string(dir.join("openatat/history.jsonl")).unwrap();

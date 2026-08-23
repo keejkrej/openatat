@@ -31,7 +31,7 @@ use wayland_client::{Connection, QueueHandle};
 
 use super::draw::{self, Frame, Phase, POPOVER_H, POPOVER_W};
 use super::OverlayEnd;
-use crate::agent;
+use crate::agent::{self, Attachment, Launch, RefineSession};
 use crate::error::{Error, Result};
 use crate::history;
 use crate::session::Session;
@@ -82,6 +82,10 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
         pointer: None,
         prompt: String::new(),
         preview: String::new(),
+        refine: String::new(),
+        refine_session: None,
+        template_display: agent::resolve_selected().display(),
+        still_png: session.still.as_ref().map(|s| s.png.clone()),
         phase: Phase::Prompt,
         has_tile: session.still.is_some(),
         thumb,
@@ -120,6 +124,10 @@ struct Overlay {
     pointer: Option<wl_pointer::WlPointer>,
     prompt: String,
     preview: String,
+    refine: String,
+    refine_session: Option<RefineSession>,
+    template_display: String,
+    still_png: Option<Vec<u8>>,
     phase: Phase,
     has_tile: bool,
     thumb: Option<(u32, u32, Vec<u8>)>,
@@ -138,15 +146,26 @@ impl Overlay {
                     "no still · grim missing or tile removed"
                 }
             }
-            Phase::Running => "dummy CLI (echo / OPENATAT_AGENT)",
+            Phase::Running => "scratch cwd · prompt passed as data",
             Phase::Preview => "result is not in your document until Tab",
+            Phase::Refine => "same attachments · new result replaces the old",
+        };
+        let prompt = if self.phase == Phase::Refine {
+            self.refine.clone()
+        } else {
+            self.prompt.clone()
+        };
+        let status = if self.phase == Phase::Running || self.phase == Phase::Prompt {
+            format!("{} · {}", self.template_display, status)
+        } else {
+            status.to_string()
         };
         Frame {
             phase: self.phase,
-            prompt: self.prompt.clone(),
+            prompt,
             preview: self.preview.clone(),
             has_tile: self.has_tile,
-            status: status.into(),
+            status,
         }
     }
 
@@ -188,7 +207,9 @@ impl Overlay {
             }
             Keysym::Return | Keysym::KP_Enter => {
                 if self.phase == Phase::Prompt {
-                    self.run_agent(qh);
+                    self.run_agent(qh, false);
+                } else if self.phase == Phase::Refine {
+                    self.run_agent(qh, true);
                 }
                 return;
             }
@@ -198,9 +219,22 @@ impl Overlay {
                 }
                 return;
             }
+            Keysym::r | Keysym::R => {
+                if self.phase == Phase::Preview {
+                    self.refine.clear();
+                    self.phase = Phase::Refine;
+                    self.dirty = true;
+                    self.draw(qh);
+                    return;
+                }
+            }
             Keysym::BackSpace => {
                 if self.phase == Phase::Prompt {
                     self.prompt.pop();
+                    self.dirty = true;
+                    self.draw(qh);
+                } else if self.phase == Phase::Refine {
+                    self.refine.pop();
                     self.dirty = true;
                     self.draw(qh);
                 }
@@ -216,21 +250,64 @@ impl Overlay {
                     self.draw(qh);
                 }
             }
+        } else if self.phase == Phase::Refine {
+            if let Some(txt) = event.utf8 {
+                if !txt.is_empty() && !txt.chars().any(|c| c.is_control()) {
+                    self.refine.push_str(&txt);
+                    self.dirty = true;
+                    self.draw(qh);
+                }
+            }
         }
     }
 
-    fn run_agent(&mut self, qh: &QueueHandle<Self>) {
+    fn run_agent(&mut self, qh: &QueueHandle<Self>, is_refine: bool) {
+        if is_refine && self.refine.is_empty() {
+            return;
+        }
         self.phase = Phase::Running;
         self.draw(qh);
-        let prompt = if self.prompt.is_empty() {
-            "hello from openatat".to_string()
-        } else {
-            self.prompt.clone()
+        if self.prompt.is_empty() {
+            self.prompt = "hello from openatat".to_string();
+        }
+        if self.refine_session.is_none() {
+            self.refine_session = Some(RefineSession::new(self.prompt.clone()));
+        }
+        let Some(sess) = self.refine_session.as_mut() else {
+            return;
         };
-        self.prompt = prompt.clone();
-        let _ = history::append_prompt(self.entry, &prompt);
-        match agent::run_dummy(&prompt) {
-            Ok(out) => self.preview = out,
+        if is_refine {
+            let sentence = if self.refine.is_empty() {
+                return;
+            } else {
+                self.refine.clone()
+            };
+            sess.apply_refine(sentence);
+        }
+        let history_prompt = sess.history_prompt().to_string();
+        let launch_prompt = sess.launch_prompt();
+        let _ = history::append_prompt(self.entry, &history_prompt);
+        let attachments = if self.has_tile {
+            self.still_png
+                .as_ref()
+                .map(|png| Attachment::Still { png: png.clone() })
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        match agent::run_launch(&Launch {
+            prompt: &launch_prompt,
+            attachments: &attachments,
+            resolve: None,
+            copy_text: crate::clipboard::copy_text,
+        }) {
+            Ok(out) => {
+                if let Some(sess) = self.refine_session.as_mut() {
+                    sess.replace_preview(out.clone());
+                }
+                self.preview = out;
+            }
             Err(e) => self.preview = format!("agent error: {e}"),
         }
         self.phase = Phase::Preview;
@@ -449,6 +526,7 @@ impl PointerHandler for Overlay {
                 } else if draw::hit_remove(x, y, self.has_tile) {
                     self.has_tile = false;
                     self.thumb = None;
+                    self.still_png = None;
                     self.dirty = true;
                     self.draw(qh);
                 }

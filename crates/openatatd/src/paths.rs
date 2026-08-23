@@ -8,6 +8,27 @@ pub fn data_dir() -> PathBuf {
     home_dir().join(".local/share/openatat")
 }
 
+/// `~/.config/openatat` (or `$XDG_CONFIG_HOME/openatat`).
+pub fn config_dir() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        return PathBuf::from(xdg).join("openatat");
+    }
+    home_dir().join(".config/openatat")
+}
+
+/// BYO CLI template / provider pick. Edit on disk; no Settings UI yet.
+pub fn agent_config_path() -> PathBuf {
+    config_dir().join("agent.toml")
+}
+
+/// `~/.cache/openatat` (or `$XDG_CACHE_HOME/openatat`). Scratch workspaces live here.
+pub fn cache_dir() -> PathBuf {
+    if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
+        return PathBuf::from(xdg).join("openatat");
+    }
+    home_dir().join(".cache/openatat")
+}
+
 /// `$XDG_RUNTIME_DIR/openatat` (socket lives here).
 pub fn runtime_dir() -> PathBuf {
     let base = std::env::var_os("XDG_RUNTIME_DIR")
@@ -42,6 +63,30 @@ mod tests {
         match old {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),
             None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+    }
+
+    #[test]
+    fn config_and_cache_respect_xdg() {
+        let old_cfg = std::env::var_os("XDG_CONFIG_HOME");
+        let old_cache = std::env::var_os("XDG_CACHE_HOME");
+        std::env::set_var("XDG_CONFIG_HOME", "/tmp/openatat-test-cfg");
+        std::env::set_var("XDG_CACHE_HOME", "/tmp/openatat-test-cache");
+        assert_eq!(
+            agent_config_path(),
+            PathBuf::from("/tmp/openatat-test-cfg/openatat/agent.toml")
+        );
+        assert_eq!(
+            cache_dir(),
+            PathBuf::from("/tmp/openatat-test-cache/openatat")
+        );
+        match old_cfg {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        match old_cache {
+            Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
+            None => std::env::remove_var("XDG_CACHE_HOME"),
         }
     }
 }
