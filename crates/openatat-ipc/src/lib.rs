@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 /// Default relative path under `$XDG_RUNTIME_DIR`.
 pub const TRIGGER_SOCKET_NAME: &str = "openatat/trigger.sock";
 
+/// Presence file the Omarchy Quickshell bar chip watches (same runtime dir).
+pub const STATUS_FILE_NAME: &str = "openatat/status.json";
+
 /// How the overlay was summoned. A global hotkey is not a valid source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -82,6 +85,8 @@ pub enum DaemonRequest {
     },
     /// Dev: probe the focused AT-SPI selection as a mouse-up. Not a hotkey.
     SelectionProbe,
+    /// Bar-chip presence. Does not summon the overlay or take the session lock.
+    Status,
     Ping,
 }
 
@@ -89,8 +94,12 @@ pub enum DaemonRequest {
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum DaemonReply {
     Ok,
+    /// Presence: daemon up, no overlay / agent session.
+    Idle,
     Busy,
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 impl DaemonRequest {
@@ -100,6 +109,24 @@ impl DaemonRequest {
 
     pub fn decode(line: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(line.trim())
+    }
+}
+
+impl DaemonReply {
+    pub fn encode(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    pub fn decode(line: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(line.trim())
+    }
+
+    /// Chip / `status.json` view: idle | busy | error (never `ok`).
+    pub fn as_presence(&self) -> Self {
+        match self {
+            Self::Ok => Self::Idle,
+            other => other.clone(),
+        }
     }
 }
 
@@ -171,5 +198,32 @@ mod tests {
             DaemonRequest::SelectionProbe
         );
         assert!(line.contains("selection-probe"));
+    }
+
+    #[test]
+    fn status_request_roundtrip() {
+        let line = DaemonRequest::Status.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), DaemonRequest::Status);
+        assert_eq!(line, r#"{"cmd":"status"}"#);
+        let ping = DaemonRequest::Ping.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&ping).unwrap(), DaemonRequest::Ping);
+        assert_eq!(ping, r#"{"cmd":"ping"}"#);
+    }
+
+    #[test]
+    fn presence_reply_is_idle_busy_error() {
+        assert_eq!(DaemonReply::Idle.encode().unwrap(), r#"{"status":"idle"}"#);
+        assert_eq!(DaemonReply::Busy.encode().unwrap(), r#"{"status":"busy"}"#);
+        let err = DaemonReply::Error {
+            message: "agent failed".into(),
+        };
+        let line = err.encode().unwrap();
+        assert_eq!(DaemonReply::decode(&line).unwrap(), err);
+        assert!(line.contains("\"status\":\"error\""));
+        assert_eq!(DaemonReply::Ok.as_presence(), DaemonReply::Idle);
+        assert_eq!(
+            DaemonReply::decode(r#"{"status":"idle"}"#).unwrap(),
+            DaemonReply::Idle
+        );
     }
 }

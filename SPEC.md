@@ -74,7 +74,7 @@ P0 does **not** use gpui for the overlay. gpui-ce 0.3 has `LayerShell` / `PopUp`
 | Windows | `WS_EX_NOACTIVATE` (and typically `WS_EX_TOOLWINDOW`) | Same nonactivating contract. |
 | Linux / Omarchy | Native `zwlr_layer_shell_v1` surface **inside the applet** | Software `wl_shm`. No GPU process at idle. |
 
-Quickshell is Omarchy 4’s shell (Hyprland + Quickshell; Waybar is gone). A Quickshell plugin is **only** the bar chip, and only later. Do not add Waybar modules. Do not use iced, gtk4-layer-shell as the main UI, AGS, or astal.
+Quickshell is Omarchy 4’s shell (Hyprland + Quickshell; Waybar is gone). A Quickshell plugin is **only** the bar chip (`omarchy/openatat`, id `openatat.chip`). It shows idle / agent running / error and may open Settings. It is not a second overlay and not the Orb. Do not add Waybar modules. Do not use iced, gtk4-layer-shell as the main UI, AGS, or astal.
 
 Capture stays in the daemon. gpui `ScreenCaptureFrame` is a stub.
 
@@ -130,7 +130,7 @@ C1 is the only live capture in P0. C10 is live on Linux in P1 (mouse-up + AT-SPI
 | Clipboard | `wlr-data-control` via `wl-clipboard-rs`, `wl-copy` fallback | `NSPasteboard` | Win32 clipboard |
 | File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` |
 | Settings / studio | `openatat-ui` gpui-ce, on demand (Settings + history now; studio later) | same | same |
-| Bar chip | Quickshell plugin later — **not** Waybar | menu extra / Orb | tray later |
+| Bar chip | Quickshell plugin `openatat.chip` (`omarchy/openatat`). Status via `{"cmd":"status"}` on `trigger.sock` and `$XDG_RUNTIME_DIR/openatat/status.json` (`idle` / `busy` / `error`). Click = `open-ui` Settings (no-op if UI lacks gpui). **Not** Waybar. | menu extra / Orb | tray later |
 | Capture in gpui | `ScreenCaptureFrame` is a stub — do not use | stub | stub |
 
 Mac and Windows modules in this repo are compile-gated placeholders with comments pointing at the rows above.
@@ -167,7 +167,8 @@ Every permission is optional. Deny one and the rest of the app keeps working; th
 | `wlr-data-control` or `wl-copy` | Clipboard-first insert | Hyprland supports data-control |
 | AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe + C10 selection | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
 | Fcitx5 (`fcitx5-openatat`) | Product `@@` trigger | C++ module; see IME plan |
-| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger | `fcitx5-openatat` and `openatatd trigger` |
+| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger + bar-chip status / Settings | `fcitx5-openatat`, `openatatd trigger`, `{"cmd":"status"}`, `{"cmd":"open-ui"}` |
+| `$XDG_RUNTIME_DIR/openatat/status.json` | Omarchy Quickshell bar chip (`openatat.chip`) | Written by `openatatd` on idle / busy / error. No extra GPU surface. |
 
 The product path needs `fcitx5-openatat` installed and Fcitx5 running. `--demo` / `openatatd trigger` stay available without the addon.
 
@@ -262,7 +263,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - Preview refine (`R`). **Done.**
 - `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio / first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
 - Selection bar (C10) for Linux mouse selections when AT-SPI reports selected text. **Done.** Keyboard selections do not summon. Browsers/Electron that expose no selection are skipped (no clipboard save/restore). User-defined prompts and an exclude list can wait on Settings.
-- Quickshell bar chip (not Waybar).
+- Quickshell bar chip (not Waybar). **Done.** Plugin source in `omarchy/openatat/`; daemon exposes `{"cmd":"status"}` / `status.json`.
 - Handoff to a terminal. **Done on Linux.**
 
 ### P2 — Other OS + the rest of C2–C19
@@ -286,7 +287,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 8. **Insert into the wrong window.** Compare Hyprland window **address** (not title). Abort > guess.
 9. **Clipboard after insert, or insert without clipboard.** Order is clipboard first.
 10. **Nautilus has no selection D-Bus API.** Do not scrape the view or guess URIs.
-11. **Waybar is gone on Omarchy 4.** Quickshell chip later; no Waybar module.
+11. **Waybar is gone on Omarchy 4.** The presence path is the Quickshell chip (`omarchy/openatat`); no Waybar module.
 12. **No bundled model.** BYO CLI on PATH; `echo` dummy only when nothing is installed. Never splice the prompt into a shell string.
 13. **Synthetic backspaces** into the client are a last resort and must be gated on the same focus address.
 14. **AT-SPI in browsers / Electron / games** is incomplete. Clipboard-first saves the result.

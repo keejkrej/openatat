@@ -29,6 +29,7 @@ pub struct Cli {
     pub headless: bool,
     pub trigger_client: bool,
     pub selection_client: bool,
+    pub status_client: bool,
     pub open_ui: Option<UiPage>,
     pub prompt: Option<String>,
     pub selection_text: Option<String>,
@@ -42,6 +43,7 @@ impl Cli {
             headless: false,
             trigger_client: false,
             selection_client: false,
+            status_client: false,
             open_ui: None,
             prompt: None,
             selection_text: None,
@@ -56,6 +58,7 @@ impl Cli {
                 }
                 "trigger" => cli.trigger_client = true,
                 "selection" => cli.selection_client = true,
+                "status" | "ping" => cli.status_client = true,
                 "--settings" => cli.open_ui = Some(UiPage::Settings),
                 "--history" => cli.open_ui = Some(UiPage::History),
                 "--help" | "-h" => {
@@ -89,13 +92,15 @@ USAGE:
   openatatd                 Always-on daemon (unix trigger socket)
   openatatd --demo          One interactive session, then exit
   openatatd --headless      One session without a layer surface
-  openatatd trigger         Ping a running daemon (dev path, not a hotkey)
+  openatatd trigger         Summon a running daemon (dev path, not a hotkey)
+  openatatd status          Presence for the Omarchy bar chip (idle|busy|error)
   openatatd selection       Probe the focused AT-SPI selection as a mouse-up
   openatatd --settings      Spawn openatat-ui Settings (activating; not the overlay)
   openatatd --history       Spawn openatat-ui History
 
 The product trigger is the Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 The selection bar is a native layer-shell surface in this process (not gpui).
+The Omarchy 4 bar chip is a Quickshell plugin (omarchy/openatat), not Waybar.
 See SPEC.md §6 and ime/fcitx5-openatat/README.md.
 "
     );
@@ -121,7 +126,16 @@ mod tests {
         assert_eq!(cli.prompt.as_deref(), Some("hi"));
         assert!(!cli.trigger_client);
         assert!(!cli.selection_client);
+        assert!(!cli.status_client);
         assert!(cli.open_ui.is_none());
+    }
+
+    #[test]
+    fn parse_status_client() {
+        let cli = Cli::parse(["status"]);
+        assert!(cli.status_client);
+        let cli = Cli::parse(["ping"]);
+        assert!(cli.status_client);
     }
 
     #[test]
@@ -150,6 +164,9 @@ pub fn run(cli: Cli) -> Result<()> {
     }
     if cli.selection_client {
         return daemon::send_selection_probe();
+    }
+    if cli.status_client {
+        return daemon::send_status();
     }
     if let Some(selected) = cli.selection_text.clone() {
         let action = cli.action.unwrap_or(PromptAction::Ask);

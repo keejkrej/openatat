@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "openatat.chip",
+  "name": "OpenAtat",
+  "version": "1.0.0",
+  "author": "OpenAtat",
+  "description": "@@ presence chip: idle / agent running / error. Click opens Settings.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "OpenAtat",
+    "description": "Shows whether @@ is idle, running, or in error. Click opens Settings.",
+    "category": "Info",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

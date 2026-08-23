@@ -45,6 +45,11 @@ pub fn trigger_socket_path() -> PathBuf {
     runtime_dir().join("trigger.sock")
 }
 
+/// `$XDG_RUNTIME_DIR/openatat/status.json` — bar chip reads this, no GPU surface.
+pub fn status_file_path() -> PathBuf {
+    runtime_dir().join("status.json")
+}
+
 fn home_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -87,6 +92,24 @@ mod tests {
         match old_cache {
             Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
             None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+    }
+
+    #[test]
+    fn status_file_lives_next_to_the_trigger_socket() {
+        let old = std::env::var_os("XDG_RUNTIME_DIR");
+        std::env::set_var("XDG_RUNTIME_DIR", "/tmp/openatat-test-run");
+        assert_eq!(
+            status_file_path(),
+            PathBuf::from("/tmp/openatat-test-run/openatat/status.json")
+        );
+        assert_eq!(
+            trigger_socket_path(),
+            PathBuf::from("/tmp/openatat-test-run/openatat/trigger.sock")
+        );
+        match old {
+            Some(v) => std::env::set_var("XDG_RUNTIME_DIR", v),
+            None => std::env::remove_var("XDG_RUNTIME_DIR"),
         }
     }
 }
