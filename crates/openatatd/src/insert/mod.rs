@@ -80,6 +80,7 @@ mod tests {
     use std::sync::Mutex;
 
     static ORDER: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn mock_copy(_: &str) -> Result<()> {
         ORDER.lock().unwrap().push("copy");
@@ -117,6 +118,7 @@ mod tests {
 
     #[test]
     fn insert_is_clipboard_first() {
+        let _g = TEST_LOCK.lock().unwrap();
         ORDER.lock().unwrap().clear();
         let expected = FocusSnapshot {
             window_address: Some("0x1".into()),
@@ -130,6 +132,7 @@ mod tests {
 
     #[test]
     fn replace_is_clipboard_first() {
+        let _g = TEST_LOCK.lock().unwrap();
         ORDER.lock().unwrap().clear();
         let expected = FocusSnapshot::default();
         let out = tab_insert_with(
@@ -147,6 +150,7 @@ mod tests {
 
     #[test]
     fn focus_change_aborts_after_clipboard() {
+        let _g = TEST_LOCK.lock().unwrap();
         ORDER.lock().unwrap().clear();
         let expected = FocusSnapshot {
             window_address: Some("0x1".into()),
@@ -167,6 +171,7 @@ mod tests {
 
     #[test]
     fn mac_frontmost_and_ax_mismatch_aborts_after_clipboard() {
+        let _g = TEST_LOCK.lock().unwrap();
         ORDER.lock().unwrap().clear();
         let expected = FocusSnapshot {
             pid: Some(10),
@@ -185,6 +190,29 @@ mod tests {
             )
         }
         let out = tab_insert_with("hi", &expected, None, mock_copy, pid_moved, mock_insert).unwrap();
+        assert_eq!(out, InsertOutcome::AbortedFocusChanged);
+        assert_eq!(*ORDER.lock().unwrap(), vec!["copy"]);
+    }
+
+    #[test]
+    fn win_hwnd_and_runtime_id_mismatch_aborts_after_clipboard() {
+        let _g = TEST_LOCK.lock().unwrap();
+        ORDER.lock().unwrap().clear();
+        let expected = FocusSnapshot {
+            window_address: Some("hwnd:0x10/rid:1.2.3".into()),
+            element_id: Some("hwnd:0x10/rid:1.2.3".into()),
+            ..FocusSnapshot::default()
+        };
+        fn hwnd_moved(expected: &FocusSnapshot) -> bool {
+            crate::a11y::win_identity_changed(
+                Some(0x10),
+                expected.element_id.as_deref(),
+                Some(0x11),
+                Some("hwnd:0x11/rid:9.9.9"),
+            )
+        }
+        let out =
+            tab_insert_with("hi", &expected, None, mock_copy, hwnd_moved, mock_insert).unwrap();
         assert_eq!(out, InsertOutcome::AbortedFocusChanged);
         assert_eq!(*ORDER.lock().unwrap(), vec!["copy"]);
     }

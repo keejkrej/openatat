@@ -6,14 +6,19 @@
 
 mod ime;
 pub mod macos_policy;
+pub mod windows_policy;
 
 #[cfg(target_os = "macos")]
 pub mod macos;
+#[cfg(target_os = "windows")]
+pub mod windows;
 
 pub use ime::{Fcitx5Backend, FieldKind, IbusBackend, ImeAction, ImeBackend, ImeEvent, ImeFilter};
 
 #[cfg(target_os = "macos")]
 pub use macos::MacTapBackend;
+#[cfg(target_os = "windows")]
+pub use windows::WinHookBackend;
 
 /// Last two committed characters. Nothing before or after is kept.
 #[derive(Debug, Clone, Default)]

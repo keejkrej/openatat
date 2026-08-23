@@ -29,6 +29,10 @@ fn find_ui_bin() -> Result<PathBuf> {
         if sibling.is_file() {
             return Ok(sibling);
         }
+        let sibling_exe = exe.with_file_name("openatat-ui.exe");
+        if sibling_exe.is_file() {
+            return Ok(sibling_exe);
+        }
     }
     if let Some(found) = crate::agent::which("openatat-ui", std::env::var_os("PATH").as_deref()) {
         return Ok(found);

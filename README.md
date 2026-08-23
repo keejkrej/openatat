@@ -2,7 +2,7 @@
 
 Open clone of [Atat](https://atatapp.com): type `@@` in any text field. OpenAtat gathers what you are looking at, runs the CLI agent you already have, and puts the answer back in the line you were typing. It never becomes the active app.
 
-This repository is the Linux/Omarchy spike plus a real macOS `@@` path. Product contract, capture inventory C1–C19, OS API matrix, budgets, permissions, ship order, and landmines: **[SPEC.md](SPEC.md)**. Product facts follow Atat’s [manual](https://atatapp.com/manual) and [FAQ](https://atatapp.com/faq).
+This repository is the Linux/Omarchy spike plus real macOS and Windows `@@` paths. Product contract, capture inventory C1–C19, OS API matrix, budgets, permissions, ship order, and landmines: **[SPEC.md](SPEC.md)**. Product facts follow Atat’s [manual](https://atatapp.com/manual) and [FAQ](https://atatapp.com/faq).
 
 Apache-2.0. No bundled LLM.
 
@@ -17,7 +17,7 @@ P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / T
 
 - **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surface inside `openatatd`, software `wl_shm`. Keyboard `OnDemand` only while the prompt or selection bar is up. The selection bar is the same compositor client as the `@@` popover — not a gpui window.
 - **macOS:** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel` (`canJoinAllSpaces`, `fullScreenAuxiliary`). Never becomes the active app. Trigger is a listen-only event tap feeding `ImeFilter` — not a global summon hotkey.
-- **Windows (later):** `WS_EX_NOACTIVATE`.
+- **Windows:** `WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED`. Never calls `SetForegroundWindow`. Trigger is a process-local keyboard hook (Raw Input fallback) feeding `ImeFilter` — not a global summon hotkey.
 
 Omarchy 4 is Hyprland + Quickshell (Waybar is gone). Do not add Waybar modules. The Omarchy presence path is the Quickshell bar chip in `omarchy/openatat/` (`openatat.chip`). It is not a second overlay and not the Orb.
 
@@ -161,7 +161,7 @@ Flags come from each emulator's docs (`ghostty --working-directory=DIR -e …`, 
 - **Interactive CLI** (not `--print` / plan-mode / one-shot): `claude {prompt}`, `codex {prompt}`, `cursor-agent {prompt}`, `pi {prompt}`, `opencode --prompt {prompt}`. Grok and Hermes have no documented TUI-preload flag — the terminal opens in scratch on `grok` / `hermes` with `prompt.txt` already written. Dummy (`echo`) opens the terminal in scratch only.
 - If launch fails, the prompt is copied to the clipboard **before** the error is shown.
 
-macOS handoff uses `NSWorkspace.openApplication` with `OpenConfiguration` (`arguments`, `currentDirectoryURL`) and the same scratch cwd. The prompt is never spliced into `open -a` / `sh -c`. Windows remains a `CreateProcessW` stub.
+macOS handoff uses `NSWorkspace.openApplication` with `OpenConfiguration` (`arguments`, `currentDirectoryURL`) and the same scratch cwd. The prompt is never spliced into `open -a` / `sh -c`. Windows handoff uses `CreateProcessW` with `lpCurrentDirectory` = scratch, preferring Windows Terminal (`wt.exe -d <scratch> -- <cli>`). Never `cmd.exe /c`.
 
 A machine with `claude` on `PATH`:
 
@@ -262,6 +262,41 @@ cargo run -p openatatd -- --headless --prompt='make this friendlier'
 
 This cloud / Linux agent **cannot** `cargo build --target aarch64-apple-darwin` — the macOS SDK is not installed. That is a real gap, not a successful cross-compile.
 
+## How to run on Windows
+
+Needs a native MSVC toolchain (`x86_64-pc-windows-msvc`) and the Windows 10+ SDK. This Linux CI image does **not** have that toolchain — do not treat a missing cross-compile as success.
+
+```bat
+cargo build -p openatatd
+cargo run -p openatatd
+```
+
+Type `@@` in a text field. The process-local keyboard hook feeds `ImeFilter` (UIA `IsPassword` / Win32 `ES_PASSWORD` re-probed every key; IME composition ignored). The two `@` characters are swallowed via UIA ValuePattern replace (never into a password field) and a `WS_EX_NOACTIVATE` overlay opens. OpenAtat never calls `SetForegroundWindow`. `Esc` cancels. `Tab` writes the clipboard first, re-checks `GetForegroundWindow` + UIA RuntimeId, then ValuePattern / a single Ctrl+V. Browsers paste; they are not typed per-key. `Win+Return` (or the **Handoff** button) opens Windows Terminal (`wt.exe -d <scratch> -- <cli>`) with the prompt as data.
+
+If the hook cannot install, `--demo` and the trigger socket still work:
+
+```bat
+REM terminal A
+cargo run -p openatatd
+
+REM terminal B
+cargo run -p openatatd -- trigger
+REM or
+cargo run -p openatatd -- --demo
+```
+
+Headless (no Win32 popover):
+
+```bat
+cargo run -p openatatd -- --headless --prompt="make this friendlier"
+```
+
+C1 uses Windows.Graphics.Capture `CreateForMonitor` of the monitor that owns the foreground window (one frame, then close). First use may prompt for **graphics capture / screenshots** privacy consent. Deny it and the still tile is skipped. `GraphicsCapturePicker` is never used. DXGI Desktop Duplication is fallback only. The overlay HWND is excluded (`WDA_EXCLUDEFROMCAPTURE`).
+
+History lives under `%LOCALAPPDATA%\openatat\history.jsonl` unless `XDG_DATA_HOME` is set. Scratch workspaces: `%LOCALAPPDATA%\openatat\cache\scratch\<id>\`. The trigger client talks to `127.0.0.1` using `%TEMP%\openatat\trigger.port`.
+
+This cloud / Linux agent **cannot** `cargo build --target x86_64-pc-windows-msvc` unless that target and the Windows SDK are installed. That is a real gap, not a successful cross-compile.
+
 ## Permissions (Linux)
 
 Optional; deny one and the rest still works.
@@ -283,18 +318,25 @@ Optional TCC grants. Deny one and the rest still works. First-run can finish wit
 - **Screen Recording** — C1 via `SCScreenshotManager` + display `SCContentFilter` (OpenAtat windows excluded). Denied: skip the tile. Not `CGWindowListCreateImage`.
 - **Finder Automation** — insertion location + selection as real POSIX paths (cwd tile + file tiles). Denied: do **not** guess from the title bar. Right-click Service waits.
 
-History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `entry`, `prompt` only). Prompts never go through our servers.
+## Permissions (Windows)
+
+Optional. Deny one and the rest still works.
+
+- **UI Automation** — insert, @@ swallow, C10 `TextPattern`, `IsPassword` / `ES_PASSWORD` every key. Password fields are never read.
+- **Graphics Capture** — C1 via WGC `CreateForMonitor`. Settings → Privacy & security → Screenshots and apps. Denied: skip the tile. Not `GraphicsCapturePicker`.
+- **Explorer shell** — cwd + selected PIDLs via `IShellWindows` → `IFolderView` when Explorer is frontmost. Title bar is never parsed. Context-menu DLL waits.
+
+History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, `timestamp`, `entry`, `prompt` only). Windows: `%LOCALAPPDATA%\openatat\history.jsonl`. Prompts never go through our servers.
 
 ## What is stubbed
 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
-- Windows overlay (`WS_EX_NOACTIVATE`), WGC, UI Automation, UIA selection, `CreateProcessW` handoff.
 - `openatat-ui` studio / first-run (Settings + history are implemented).
-- Orb, clipboard shelf, Nautilus (no selection D-Bus API). Finder Automation is implemented on Mac only.
+- Orb, clipboard shelf, Nautilus (no selection D-Bus API).
 - Recording, scrolling capture, OCR, annotation studio (C6–C19 except C10).
-- Right-click Finder Service.
+- Right-click Finder Service / Explorer context-menu DLL.
 
-C1 is grim on Linux and ScreenCaptureKit on Mac (long-edge ~1760, removable tile). C10 is mouse-up + AT-SPI on Linux and mouse-up + `AXSelectedText` on Mac. Terminal handoff is implemented on Linux and macOS. Overlay/trigger/capture/insert on Mac are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows (long-edge ~1760, removable tile). C10 is mouse-up + AT-SPI / `AXSelectedText` / UIA TextPattern. Terminal handoff is implemented on Linux, macOS, and Windows. Overlay/trigger/capture/insert on Mac and Windows are no longer stubs. The Omarchy 4 bar chip is the Quickshell plugin in `omarchy/openatat/`.
 
 ## Crate layout
 

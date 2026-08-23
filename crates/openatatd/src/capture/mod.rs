@@ -331,16 +331,7 @@ mod macos {
 }
 
 #[cfg(target_os = "windows")]
-mod windows {
-    use super::*;
-
-    pub fn capture_active_output() -> Result<Still> {
-        // Windows.Graphics.Capture (WGC) / DXGI desktop duplication.
-        Err(crate::error::Error::msg(
-            "Windows capture is a stub: WGC (Windows.Graphics.Capture)",
-        ))
-    }
-}
+mod windows;
 
 #[cfg(test)]
 mod tests {
@@ -359,6 +350,21 @@ mod tests {
         let still = downscale_long_edge(&png, 1760).unwrap();
         assert_eq!(still.width.max(still.height), 1760);
         assert!(still.width > 0 && still.height > 0);
+    }
+
+    #[test]
+    fn windows_c1_source_never_uses_picker_or_activates() {
+        let src = include_str!("windows.rs");
+        assert!(
+            !src.contains("GraphicsCapturePicker::") && !src.contains("GraphicsCapturePicker {"),
+            "auto-attach must not construct a system capture picker"
+        );
+        assert!(
+            !src.contains("SetForegroundWindow("),
+            "C1 must not steal the foreground"
+        );
+        assert!(src.contains("CreateForMonitor"));
+        assert!(src.contains("WDA_EXCLUDEFROMCAPTURE") || src.contains("exclude"));
     }
 
     #[test]

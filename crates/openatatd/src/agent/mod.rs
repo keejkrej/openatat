@@ -412,6 +412,15 @@ pub(crate) fn filtered_env() -> Vec<(OsString, OsString)> {
         "XDG_CACHE_HOME",
         "XDG_STATE_HOME",
         "XDG_CURRENT_DESKTOP",
+        "USERPROFILE",
+        "USERNAME",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "WINDIR",
+        "COMSPEC",
+        "NUMBER_OF_PROCESSORS",
     ];
     std::env::vars_os()
         .filter(|(key, _)| keep_env_key(key, KEEP))
@@ -447,14 +456,30 @@ fn keep_env_key(key: &OsStr, keep: &[&str]) -> bool {
 
 pub fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let p = Path::new(name);
-    if p.is_absolute() || name.contains('/') {
+    if p.is_absolute() || name.contains('/') || name.contains('\\') {
         return is_executable(p).then(|| p.to_path_buf());
     }
     let path = path?;
+    let candidates = which_names(name);
     std::env::split_paths(path).find_map(|dir| {
-        let cand = dir.join(name);
-        is_executable(&cand).then_some(cand)
+        candidates.iter().find_map(|n| {
+            let cand = dir.join(n);
+            is_executable(&cand).then_some(cand)
+        })
     })
+}
+
+fn which_names(name: &str) -> Vec<String> {
+    let mut out = vec![name.to_string()];
+    #[cfg(windows)]
+    {
+        let lower = name.to_ascii_lowercase();
+        if !lower.ends_with(".exe") && !lower.ends_with(".cmd") && !lower.ends_with(".bat") {
+            out.push(format!("{name}.exe"));
+        }
+    }
+    let _ = name;
+    out
 }
 
 fn first_on_path(bins: &[&str], path: Option<&OsStr>) -> Option<String> {

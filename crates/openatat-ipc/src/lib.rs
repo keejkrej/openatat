@@ -31,10 +31,10 @@ pub struct FocusSnapshot {
     pub title: Option<String>,
     /// Output name (`DP-1`, …) used for grim `-o`.
     pub output: Option<String>,
-    /// macOS frontmost pid. Unused on Linux.
+    /// macOS frontmost pid / Windows HWND (as isize). Unused on Linux.
     #[serde(default)]
     pub pid: Option<i32>,
-    /// macOS focused AX element identity. Unused on Linux.
+    /// macOS focused AX element / Windows UIA RuntimeId. Unused on Linux.
     #[serde(default)]
     pub element_id: Option<String>,
 }

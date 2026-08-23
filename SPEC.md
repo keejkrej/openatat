@@ -86,7 +86,7 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 - **Prompt as data.** Templates are an argv list, never a shell line. The prompt is one argv element (`{prompt}`), stdin (no placeholder), or a temp file the template names (`{prompt_file}`). Quotes and newlines stay intact. `OPENATAT_AGENT` is an escape hatch: that binary, prompt on stdin.
 - **Scratch workspace.** Every run creates a directory under `~/.cache/openatat/scratch/`, sets cwd there, and filters the environment. Quick answers never use the user’s current folder (file-manager tiles are not implemented). Conservative flags are used only when the CLI documents them (`claude --print --permission-mode plan`, `codex exec --sandbox read-only`, `grok --sandbox read-only --prompt-file`, Cursor `--print --mode ask --trust`). Unverified flags are not invented.
 - **Launch failure.** Copy the prompt to the clipboard, then show the error. Never lose what they typed.
-- **Handoff** (Linux + macOS): Super+Return / `⌘Return` / preview **Handoff** button. `openatatd` launches the user’s terminal in a scratch cwd (`~/.cache/openatat/scratch/<id>/`) and starts the same BYO CLI as an interactive session (no `--print` / plan-mode / one-shot flags). Prompt is argv or a file, never a shell string. Terminal pick: `handoff.terminal` in `agent.toml`, else PATH order ghostty → kitty → alacritty → wezterm → foot → gnome-terminal → xterm (Mac adds iTerm, then Terminal.app). Finder tiles never become the handoff cwd and are never guessed from a window title. Launch failure copies the prompt first. Esc still cancels. Successful handoff dismisses the overlay. Mac spawn is `NSWorkspace.openApplication` + `OpenConfiguration`. Windows remains a `CreateProcessW` stub.
+- **Handoff** (Linux + macOS + Windows): Super+Return / `⌘Return` / Win+Return / preview **Handoff** button. `openatatd` launches the user’s terminal in a scratch cwd (`~/.cache/openatat/scratch/<id>/`, or `%LOCALAPPDATA%\openatat\cache\scratch\<id>\` on Windows) and starts the same BYO CLI as an interactive session (no `--print` / plan-mode / one-shot flags). Prompt is argv or a file, never a shell string. Terminal pick: `handoff.terminal` in `agent.toml`, else PATH order ghostty → kitty → alacritty → wezterm → foot → gnome-terminal → xterm (Mac adds iTerm, then Terminal.app; Windows prefers `wt.exe`, then wezterm / alacritty / cmd without `/c`). File-manager tiles never become the handoff cwd and are never guessed from a window title. Launch failure copies the prompt first. Esc still cancels. Successful handoff dismisses the overlay. Mac spawn is `NSWorkspace.openApplication` + `OpenConfiguration`. Windows spawn is `CreateProcessW` (`lpCurrentDirectory` = scratch).
 
 ## 2. Capture inventory (C1–C19)
 
@@ -101,7 +101,7 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C7 | Video recording | No | Stub / comment only. |
 | C8 | GIF recording | No | Stub / comment only. |
 | C9 | OCR | No | Stub / comment only. |
-| C10 | Live text selection (selection bar) | **P1 Linux + Mac** | Mouse-up only. Native overlay bar in `openatatd` (not gpui). AT-SPI / `AXSelectedText`. Secure role re-probed every time. Selected text is ephemeral (never history / logs). Skip if a11y exposes no selection — no clipboard dance. Win: UIA TextPattern stub. |
+| C10 | Live text selection (selection bar) | **P1 Linux + Mac + Win** | Mouse-up only. Native overlay bar in `openatatd` (not gpui). AT-SPI / `AXSelectedText` / UIA TextPattern. Secure role re-probed every time. Selected text is ephemeral (never history / logs). Skip if a11y exposes no selection — no clipboard dance. |
 | C11 | File-manager working directory | **Mac** | Finder Automation `insertion location`. If denied, do not guess from the title bar. Nautilus has **no selection D-Bus API**. |
 | C12 | File-manager selected files | **Mac** | Finder Automation `selection` as POSIX paths. Right-click Service waits. |
 | C13 | Current clipboard item as a tile | No | Distinct from insert’s clipboard-first write. |
@@ -112,28 +112,28 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C18 | Video trim / export | No | Studio. |
 | C19 | Recording keyboard bezel | No | KeyCastr-style overlay during record. |
 
-C1 is grim on Linux and ScreenCaptureKit on Mac. C10 is live on Linux (mouse-up + AT-SPI) and Mac (mouse-up + AXSelectedText). C11/C12 are live on Mac via Finder Automation only. C6–C19 stay in this inventory so later work does not invent a second taxonomy.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C6–C19 stay in this inventory so later work does not invent a second taxonomy.
 
 ## 3. OS API matrix
 
 | Concern | Linux / Omarchy 4 (Hyprland + Quickshell) | macOS | Windows |
 | --- | --- | --- | --- |
-| Overlay | Native `zwlr_layer_shell_v1` in `openatatd`, `wl_shm`, `KeyboardInteractivity::OnDemand` while up | `NSPanel` nonactivating | `WS_EX_NOACTIVATE` |
-| Trigger (product) | Fcitx5 module `fcitx5-openatat`; committed text only | Listen-only CGEvent tap + `ImeFilter`. `IsSecureEventInputEnabled` / `AXSecureTextField` every key. IME composing ignored. `@@` swallowed via AX replace | TSF / IME-aware hook; not a raw hotkey |
-| Trigger (demo) | Unix socket + `--demo` / `--once`. Not a product hotkey | Same socket + `--demo` if Input Monitoring is missing | cfg stub |
-| Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 password edit every key |
-| Screen still | **grim** (`-o` active output). No xdg-desktop-portal picker on auto-attach | ScreenCaptureKit | Windows.Graphics.Capture (WGC) |
+| Overlay | Native `zwlr_layer_shell_v1` in `openatatd`, `wl_shm`, `KeyboardInteractivity::OnDemand` while up | `NSPanel` nonactivating | `WS_EX_NOACTIVATE \| TOPMOST \| TOOLWINDOW \| LAYERED`. Never `SetForegroundWindow`. |
+| Trigger (product) | Fcitx5 module `fcitx5-openatat`; committed text only | Listen-only CGEvent tap + `ImeFilter`. `IsSecureEventInputEnabled` / `AXSecureTextField` every key. IME composing ignored. `@@` swallowed via AX replace | Process-local `WH_KEYBOARD_LL` (Raw Input fallback) + `ImeFilter`. UIA `IsPassword` / `ES_PASSWORD` every key. IME composition ignored. `@@` swallowed via UIA replace or one paste. Not a raw hotkey. |
+| Trigger (demo) | Unix socket + `--demo` / `--once`. Not a product hotkey | Same socket + `--demo` if Input Monitoring is missing | TCP `127.0.0.1` + `--demo` if the hook cannot install |
+| Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 `ES_PASSWORD` every key |
+| Screen still | **grim** (`-o` active output). No xdg-desktop-portal picker on auto-attach | ScreenCaptureKit | WGC `CreateForMonitor` (monitor of the foreground window). Not `GraphicsCapturePicker`. DXGI Desktop Duplication fallback. Overlay HWND excluded. |
 | Downscale | CPU, long-edge 1600–1920 | Same policy | Same policy |
-| Insert | AT-SPI `EditableText.InsertText` (replace uses `DeleteText` then insert; no synthetic backspaces) | `AXUIElement` | UI Automation |
-| Selection bar (C10) | AT-SPI `GetNSelections` / `GetSelection` / `GetText` / `GetRangeExtents`; `RegisterEvent("mouse:b1r")`. Skip if no selection. | `NSEvent` left-mouse-up + `AXSelectedText`. Keyboard selections do not summon. | UIA TextPattern stub |
-| Focus identity | `hyprctl activewindow` **address** | PID + AX window | `HWND` |
+| Insert | AT-SPI `EditableText.InsertText` (replace uses `DeleteText` then insert; no synthetic backspaces) | `AXUIElement` | Clipboard-first, then `GetForegroundWindow` + UIA RuntimeId, then ValuePattern / TextPattern or one Ctrl+V. Browsers paste. |
+| Selection bar (C10) | AT-SPI `GetNSelections` / `GetSelection` / `GetText` / `GetRangeExtents`; `RegisterEvent("mouse:b1r")`. Skip if no selection. | `NSEvent` left-mouse-up + `AXSelectedText`. Keyboard selections do not summon. | Mouse-up + UIA TextPattern. Keyboard selections do not summon. |
+| Focus identity | `hyprctl activewindow` **address** | PID + AX window | `HWND` + UIA RuntimeId |
 | Clipboard | `wlr-data-control` via `wl-clipboard-rs`, `wl-copy` fallback | `NSPasteboard` | Win32 clipboard |
-| File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` |
+| File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` → `IFolderView`. Never the title bar. |
 | Settings / studio | `openatat-ui` gpui-ce, on demand (Settings + history now; studio later) | same | same |
 | Bar chip | Quickshell plugin `openatat.chip` (`omarchy/openatat`). Status via `{"cmd":"status"}` on `trigger.sock` and `$XDG_RUNTIME_DIR/openatat/status.json` (`idle` / `busy` / `error`). Click = `open-ui` Settings (no-op if UI lacks gpui). **Not** Waybar. | menu extra / Orb | tray later |
 | Capture in gpui | `ScreenCaptureFrame` is a stub — do not use | stub | stub |
 
-macOS modules are real `NSPanel` / ScreenCaptureKit / AX / `NSPasteboard` / `NSWorkspace` (cfg-gated). Windows modules remain compile-gated placeholders.
+macOS modules are real `NSPanel` / ScreenCaptureKit / AX / `NSPasteboard` / `NSWorkspace` (cfg-gated). Windows modules are real `WS_EX_NOACTIVATE` / WGC / UIA / Win32 clipboard / `CreateProcessW` (cfg-gated). Policy tests for both OS paths run on Linux.
 
 ## 4. Performance budgets
 
@@ -185,9 +185,17 @@ Every grant is optional. Deny one and the rest of the app keeps working; that fe
 
 `--demo` and `$TMPDIR/openatat/trigger.sock` (or `$XDG_RUNTIME_DIR`) work with zero grants.
 
-### Windows (later)
+### Windows
 
-UI Access / UIA, WGC consent, optional clipboard history access.
+Every grant is optional. Deny one and the rest of the app keeps working; that feature stays dormant. First-run can finish with none of them.
+
+| Need | What it unlocks | How |
+| --- | --- | --- |
+| UI Automation | UIA insert, @@ swallow, C10, `IsPassword` / `ES_PASSWORD` every key | No extra dialog on most builds. Password fields are never read. |
+| Graphics Capture consent | C1 `CreateForMonitor` | Settings → Privacy & security → Screenshots and apps. Skip tile if denied. Never `GraphicsCapturePicker`. |
+| Explorer shell | cwd + selected PIDLs | `IShellWindows` → `IFolderView` when Explorer is frontmost. Denied / failed: do not parse the title bar. Context-menu DLL waits. |
+
+`--demo` and the trigger TCP port (`%TEMP%\openatat\trigger.port`) work if the keyboard hook cannot install.
 
 ### Data
 
@@ -262,7 +270,8 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - C1 via grim, downscale, removable tile.
 - Dummy CLI, mandatory preview, `Tab` = clipboard then AT-SPI, abort on `hyprctl` address change.
 - `Esc` cancels. JSONL history in `~/.local/share/openatat`.
-- Mac overlay/trigger/capture/insert/C10/Finder/handoff are implemented (`cfg(target_os = "macos")`). Windows remains cfg-gated stubs.
+- Mac overlay/trigger/capture/insert/C10/Finder/handoff are implemented (`cfg(target_os = "macos")`).
+- Windows overlay/trigger/capture/insert/C10/Explorer/handoff are implemented (`cfg(target_os = "windows")`).
 - `cargo test` / `cargo build` on Linux.
 
 ### P1 — Make `@@` real on Omarchy
@@ -273,12 +282,12 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio / first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
 - Selection bar (C10) for Linux mouse selections when AT-SPI reports selected text. **Done.** Keyboard selections do not summon. Browsers/Electron that expose no selection are skipped (no clipboard save/restore). User-defined prompts and an exclude list can wait on Settings.
 - Quickshell bar chip (not Waybar). **Done.** Plugin source in `omarchy/openatat/`; daemon exposes `{"cmd":"status"}` / `status.json`.
-- Handoff to a terminal. **Done on Linux and macOS.**
+- Handoff to a terminal. **Done on Linux, macOS, and Windows.**
 
 ### P2 — Other OS + the rest of C2–C19
 
 - Mac `NSPanel` + ScreenCaptureKit + AX + Finder. **Done for the overlay / trigger / C1 / insert / C10 / Finder / handoff path.**
-- Windows `WS_EX_NOACTIVATE` + WGC + UIA.
+- Windows `WS_EX_NOACTIVATE` + WGC + UIA. **Done for the overlay / trigger / C1 / insert / C10 / Explorer / handoff path.**
 - Orb (no summon hotkey).
 - Studio / annotation in `openatat-ui`.
 - Clipboard shelf, scrolling capture, OCR, recording.
@@ -313,6 +322,7 @@ Investigated and used:
 | Still decode / downscale | `image` 0.25 (png only) | CPU. No GPU image pipeline. |
 | Overlay glyphs | `font8x8` 0.3 | Software bitmap, no fontconfig / FreeType at idle. |
 | macOS AppKit / SCK / AX | `objc2` 0.6 + `objc2-app-kit` / `objc2-screen-capture-kit` 0.3.2 + `accessibility-sys` 0.2 | NSPanel nonactivating, SCScreenshotManager, AXUIElement. |
+| Windows Win32 / UIA / WGC | `windows` 0.61 (gpui-ce 0.3 era) | `WS_EX_NOACTIVATE` overlay, `WH_KEYBOARD_LL`, UIA, `CreateForMonitor`, `CreateProcessW`. |
 | AT-SPI insert + C10 | `zbus` 5 calling `org.a11y.atspi.*` | Same bus the `atspi` crate (Odilia) wraps. Selection events stay on `zbus` (`RegisterEvent("mouse:b1r")` + `Event.Mouse::Button`). No second compositor client: the `@@` popover and the selection bar share the layer-shell host in `openatatd`. |
 | JSON / errors | `serde`, `serde_json`, `thiserror` | IPC + history. |
 
@@ -324,7 +334,7 @@ No crate found (documented, not invented):
 | IBus engine in Rust | No maintained engine crate we will depend on. |
 | Nautilus selection | No D-Bus API. |
 | gpui nonactivating panel | Does not exist. |
-| Silent ScreenCaptureKit / WGC wrappers we need on Linux | N/A on Linux. Mac uses `objc2-screen-capture-kit` + `SCScreenshotManager`. |
+| Silent ScreenCaptureKit / WGC wrappers we need on Linux | N/A on Linux. Mac uses `objc2-screen-capture-kit` + `SCScreenshotManager`. Windows uses `windows` 0.61 WGC interop (`CreateForMonitor`). |
 
 Forbidden UI stacks for the overlay: iced, gtk4-layer-shell-as-main-UI, AGS, astal, Waybar, gpui.
 

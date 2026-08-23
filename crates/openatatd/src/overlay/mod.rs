@@ -2,14 +2,14 @@
 //!
 //! Linux: one compositor client hosts both the `@@` popover and the C10
 //! selection bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no surface.
-//! macOS: NSPanel nonactivating. Session / Tab / R / handoff live in
-//! [`controller`].
+//! macOS: NSPanel nonactivating. Windows: `WS_EX_NOACTIVATE` popover.
+//! Session / Tab / R / handoff live in [`controller`].
 
 use crate::capture::Still;
 use crate::error::Result;
 use crate::session::Session;
 
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 mod controller;
 mod draw;
 
@@ -55,8 +55,7 @@ fn run_kind(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = kind;
-        return windows::run(session);
+        return windows::run(session, kind);
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
@@ -67,4 +66,19 @@ fn run_kind(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
 
 pub fn still_thumb(still: &Still) -> Result<(u32, u32, Vec<u8>)> {
     still.thumbnail_argb(120, 64)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn windows_overlay_hwnd() -> Option<isize> {
+    windows::overlay_hwnd()
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn windows_overlay_wants_keys() -> bool {
+    windows::overlay_wants_keys()
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn windows_feed_vk(vk: u32, scan: u32) {
+    windows::feed_vk(vk, scan)
 }

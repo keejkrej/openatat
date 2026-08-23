@@ -3815,6 +3815,8 @@ dependencies = [
  "toml 0.8.23",
  "uuid",
  "wayland-client",
+ "windows 0.61.3",
+ "windows-core 0.61.2",
  "wl-clipboard-rs",
  "zbus",
 ]

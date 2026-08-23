@@ -61,6 +61,25 @@ pub const MAC_GRANTS: &[PermissionGrant] = &[
     },
 ];
 
+/// Windows grants. All optional. Deny one; the rest of OpenAtat still works.
+pub const WIN_GRANTS: &[PermissionGrant] = &[
+    PermissionGrant {
+        name: "UI Automation",
+        unlocks: "UIA insert, @@ swallow, C10 TextPattern, IsPassword / ES_PASSWORD probe every key.",
+        how: "No extra consent dialog on most builds. Re-probed every key; never cached. Password fields are never read.",
+    },
+    PermissionGrant {
+        name: "Graphics Capture",
+        unlocks: "C1 auto-still via Windows.Graphics.Capture CreateForMonitor (overlay HWND excluded).",
+        how: "Settings → Privacy & security → Screenshots and apps (graphics capture). Denied: skip the tile. Not GraphicsCapturePicker.",
+    },
+    PermissionGrant {
+        name: "Explorer shell",
+        unlocks: "C11/C12 cwd + selected files via IShellWindows → IFolderView.",
+        how: "Only when Explorer is frontmost. Title bar is never parsed. Context-menu DLL waits.",
+    },
+];
+
 pub fn grants_copy() -> String {
     let mut s = String::from(
         "Each grant is optional. Deny one and the rest of OpenAtat still works.\n\
@@ -72,6 +91,10 @@ pub fn grants_copy() -> String {
     }
     s.push_str("\nmacOS\n");
     for g in MAC_GRANTS {
+        s.push_str(&format!("\n{} — {}\n  {}\n", g.name, g.unlocks, g.how));
+    }
+    s.push_str("\nWindows\n");
+    for g in WIN_GRANTS {
         s.push_str(&format!("\n{} — {}\n  {}\n", g.name, g.unlocks, g.how));
     }
     s
@@ -104,6 +127,19 @@ mod tests {
         );
         let copy = grants_copy();
         assert!(copy.contains("Input Monitoring"));
+        assert!(copy.contains("title bar"));
+    }
+
+    #[test]
+    fn names_the_three_windows_grants() {
+        let names: Vec<_> = WIN_GRANTS.iter().map(|g| g.name).collect();
+        assert_eq!(
+            names,
+            ["UI Automation", "Graphics Capture", "Explorer shell"]
+        );
+        let copy = grants_copy();
+        assert!(copy.contains("CreateForMonitor"));
+        assert!(copy.contains("GraphicsCapturePicker"));
         assert!(copy.contains("title bar"));
     }
 }
