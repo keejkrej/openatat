@@ -17,7 +17,7 @@ mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
-pub use terminals::{TerminalKind, DETECT_ORDER};
+pub use terminals::{macos_bundle_path, TerminalKind, DETECT_ORDER, DETECT_ORDER_MAC};
 
 use std::path::{Path, PathBuf};
 
@@ -195,7 +195,6 @@ mod tests {
     use uuid::Uuid;
 
     static COPY_LOCK: Mutex<Option<String>> = Mutex::new(None);
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct CacheHomeGuard {
         old: Option<OsString>,
@@ -204,7 +203,7 @@ mod tests {
 
     impl CacheHomeGuard {
         fn set(dir: &Path) -> Self {
-            let lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let lock = crate::paths::xdg_test_lock();
             let old = std::env::var_os("XDG_CACHE_HOME");
             std::env::set_var("XDG_CACHE_HOME", dir.join("cache"));
             Self { old, _lock: lock }

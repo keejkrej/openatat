@@ -227,13 +227,10 @@ fn finish_tab(session: &Session) -> Result<SessionEnd> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static XDG_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn headless_dummy_writes_history_and_preview() {
-        let _g = XDG_LOCK.lock().unwrap();
+        let _g = crate::paths::xdg_test_lock();
         let dir = std::env::temp_dir().join(format!("openatat-sess-{}", uuid::Uuid::new_v4()));
         std::env::set_var("XDG_DATA_HOME", &dir);
         std::env::remove_var("OPENATAT_AGENT");
@@ -243,16 +240,17 @@ mod tests {
         std::fs::write(cfg.join("openatat/agent.toml"), "provider = \"dummy\"\n").unwrap();
         std::env::set_var("XDG_CONFIG_HOME", &cfg);
         std::env::set_var("XDG_CACHE_HOME", dir.join("cache"));
+        let hist_path = dir.join("openatat/history.jsonl");
         let end = run_headless(TriggerSource::Demo, "friendlier").unwrap();
         assert_eq!(end, SessionEnd::CopiedOnly);
-        let hist = std::fs::read_to_string(dir.join("openatat/history.jsonl")).unwrap();
+        let hist = std::fs::read_to_string(&hist_path).unwrap();
         assert!(hist.contains("friendlier"));
         let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn selection_is_ephemeral_not_written_to_history() {
-        let _g = XDG_LOCK.lock().unwrap();
+        let _g = crate::paths::xdg_test_lock();
         let dir = std::env::temp_dir().join(format!("openatat-selhist-{}", uuid::Uuid::new_v4()));
         std::env::set_var("XDG_DATA_HOME", &dir);
         std::env::remove_var("OPENATAT_AGENT");
@@ -263,9 +261,10 @@ mod tests {
         std::env::set_var("XDG_CONFIG_HOME", &cfg);
         std::env::set_var("XDG_CACHE_HOME", dir.join("cache"));
         let secret = "SECRET_SELECTION_XYZ";
+        let hist_path = dir.join("openatat/history.jsonl");
         let end = run_headless_selection(PromptAction::Summarize, secret, "").unwrap();
         assert_eq!(end, SessionEnd::CopiedOnly);
-        let hist = std::fs::read_to_string(dir.join("openatat/history.jsonl")).unwrap();
+        let hist = std::fs::read_to_string(&hist_path).unwrap();
         assert!(
             !hist.contains(secret),
             "selected text must not be stored: {hist}"

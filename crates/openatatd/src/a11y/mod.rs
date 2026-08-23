@@ -20,7 +20,7 @@ mod macos_policy;
 
 pub use macos_policy::{
     encode_element_id, interpret_ax_field, interpret_ax_selection, is_browser_bundle,
-    mac_identity_changed, role_is_secure,
+    mac_identity_changed, parse_element_id, role_is_secure,
 };
 
 /// Screen-coordinate box for placing the selection bar.
