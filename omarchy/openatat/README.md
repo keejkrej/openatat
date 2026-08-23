@@ -4,7 +4,8 @@ Quickshell **bar-widget** for Omarchy 4 (Hyprland + Quickshell). It is the
 Omarchy presence path: a small chip that shows whether `@@` is idle, an
 agent is running, or the last run failed.
 
-It is **not** Waybar, AGS, gpui, or a second overlay. The `@@` popover,
+It is **not** Waybar, AGS, gpui, a second overlay, or the Orb. The Orb
+is a native layer-shell surface inside `openatatd`. The `@@` popover,
 trigger, insert, capture, selection bar, and handoff stay in `openatatd`.
 Clicking the chip opens Settings (`openatat-ui`) over the existing unix
 socket. If the Settings binary was not built with `--features gpui`, the

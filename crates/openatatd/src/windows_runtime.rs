@@ -80,12 +80,13 @@ pub fn run_daemon_host(start_socket: impl FnOnce() + Send + 'static) -> Result<(
     let mut hook = WinHookBackend::default();
     let _ = hook.start();
     crate::daemon::start_presence_and_selection();
+    crate::orb::start();
     std::thread::Builder::new()
         .name("openatat-sock".into())
         .spawn(start_socket)
         .map_err(|e| crate::error::Error::msg(format!("socket thread: {e}")))?;
 
-    eprintln!("openatatd: idle — WS_EX_NOACTIVATE overlay unmapped, no GPU window");
+    eprintln!("openatatd: idle — Orb mapped (WS_EX_NOACTIVATE), overlay unmapped, no GPU window");
 
     let mut msg = windows::Win32::UI::WindowsAndMessaging::MSG::default();
     loop {
@@ -98,6 +99,7 @@ pub fn run_daemon_host(start_socket: impl FnOnce() + Send + 'static) -> Result<(
             if msg.message == WM_QUIT {
                 break;
             }
+            crate::orb::windows_pump();
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }

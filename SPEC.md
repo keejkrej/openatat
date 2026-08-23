@@ -30,7 +30,7 @@ It is not another workspace. There are no sessions to maintain. Call it up, get 
 
 - The overlay is a **small popover**, not a fullscreen dim/blur.
 - OpenAtat must not become the active application. The client keeps its “active app” identity.
-- Keyboard interactivity is **OnDemand, and only while the prompt / preview / selection bar is up**. Idle has no mapped surface.
+- Keyboard interactivity is **OnDemand, and only while the prompt / preview / selection bar is up**. Idle has no mapped **overlay**. The **Orb** is mapped at idle with keyboard **none** (`KeyboardInteractivity::None` — never Exclusive or OnDemand).
 - `Esc` cancels from any state.
 - Preview card is **mandatory**. Refine-in-place (`R` + one more sentence) re-runs with the same attachments and replaces the preview. Handoff (`⌘Return` / Super+Return → real agent session in the user's terminal) is **done on Linux and macOS**.
 
@@ -63,7 +63,7 @@ This split is a product decision. Do not revisit it for convenience.
 
 | Process | Owns | Lifetime |
 | --- | --- | --- |
-| `openatatd` (native applet) | `@@` overlay, C10 selection bar, terminal handoff, Orb (later), trigger, insert, capture | Always on. Idle has **zero GPU windows**. |
+| `openatatd` (native applet) | `@@` overlay, **Orb**, C10 selection bar, terminal handoff, trigger, insert, capture | Always on. Idle has **zero GPU windows**. Orb is mapped; overlay is not. |
 | `openatat-ui` (gpui-ce) | Settings, studio / annotation, history browser, first-run | Spawn on demand, quit when idle. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has `LayerShell` / `PopUp` / `Transparent` / `focus: false`, but that is **not** a nonactivating panel.
@@ -107,18 +107,19 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C13 | Current clipboard item as a tile | No | Distinct from insert’s clipboard-first write. |
 | C14 | Clipboard history shelf | No | Atat `⌘⇧V`. Passwords never enter history. |
 | C15 | App-layout / a11y-tree tile | No | When focus is clearly not a text field. |
-| C16 | Drag-and-drop onto the Orb | No | Orb is later; no global hotkey. |
+| C16 | Drag-and-drop onto the Orb | **Yes** | Wayland / macOS / Win32 drop targets. Files, images, text become tiles. Never scrape Nautilus / Explorer / Finder titles. |
 | C17 | Annotation / crop before send | No | Studio lives in `openatat-ui`. |
 | C18 | Video trim / export | No | Studio. |
 | C19 | Recording keyboard bezel | No | KeyCastr-style overlay during record. |
 
-C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C6–C19 stay in this inventory so later work does not invent a second taxonomy.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C16 is live: drag-drop onto the Orb (Wayland / Cocoa / Win32; never a title-bar scrape). C6–C19 stay in this inventory so later work does not invent a second taxonomy.
 
 ## 3. OS API matrix
 
 | Concern | Linux / Omarchy 4 (Hyprland + Quickshell) | macOS | Windows |
 | --- | --- | --- | --- |
 | Overlay | Native `zwlr_layer_shell_v1` in `openatatd`, `wl_shm`, `KeyboardInteractivity::OnDemand` while up | `NSPanel` nonactivating | `WS_EX_NOACTIVATE \| TOPMOST \| TOOLWINDOW \| LAYERED`. Never `SetForegroundWindow`. |
+| Orb | Same compositor client class: `zwlr_layer_shell_v1` Overlay layer, exclusive zone 0, input region = circle, `KeyboardInteractivity::None`. Not Quickshell. | `NSPanel` + `NSWindowStyleMaskNonactivatingPanel`, circle hit-test. `NSStatusItem` Show Orb. | Same `WS_EX_*` as overlay, circle hit region. Never `SetForegroundWindow`. Tray later. |
 | Trigger (product) | Fcitx5 module `fcitx5-openatat`; committed text only | Listen-only CGEvent tap + `ImeFilter`. `IsSecureEventInputEnabled` / `AXSecureTextField` every key. IME composing ignored. `@@` swallowed via AX replace | Process-local `WH_KEYBOARD_LL` (Raw Input fallback) + `ImeFilter`. UIA `IsPassword` / `ES_PASSWORD` every key. IME composition ignored. `@@` swallowed via UIA replace or one paste. Not a raw hotkey. |
 | Trigger (demo) | Unix socket + `--demo` / `--once`. Not a product hotkey | Same socket + `--demo` if Input Monitoring is missing | TCP `127.0.0.1` + `--demo` if the hook cannot install |
 | Secure field | AT-SPI `Role::PasswordText` (and related) **every key** | Secure Event Input / AX secure role every key | UIA `IsPassword` / Win32 `ES_PASSWORD` every key |
@@ -141,7 +142,7 @@ These are P0 targets for the Linux spike, not promises about a shipped installer
 
 | Path | Budget | Why |
 | --- | --- | --- |
-| Idle applet | No GPU process, no mapped layer surface, no gpui window | “Never become the active app” and Omarchy laptops |
+| Idle applet | No GPU process, Orb mapped, overlay unmapped, no gpui window | “Never become the active app” and Omarchy laptops |
 | Idle RSS | Prefer well under 40 MB | Native applet, software stack |
 | `@@` → popover first paint | < 80 ms after trigger (excluding first Wayland connect) | Feels like typing, not launching |
 | C1 still (grim + downscale) | < 250 ms on a 1080p–1440p output | Tile appears with the prompt |
@@ -167,7 +168,7 @@ Every permission is optional. Deny one and the rest of the app keeps working; th
 | `wlr-data-control` or `wl-copy` | Clipboard-first insert | Hyprland supports data-control |
 | AT-SPI bus (`org.a11y.Bus`) | Insert + secure-field probe + C10 selection | Enable accessibility; some apps need `GTK_USE_PORTAL` / toolkit a11y |
 | Fcitx5 (`fcitx5-openatat`) | Product `@@` trigger | C++ module; see IME plan |
-| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger + bar-chip status / Settings | `fcitx5-openatat`, `openatatd trigger`, `{"cmd":"status"}`, `{"cmd":"open-ui"}` |
+| Unix socket `$XDG_RUNTIME_DIR/openatat/trigger.sock` | Addon + demo trigger + bar-chip status / Settings / Show Orb | `fcitx5-openatat`, `openatatd trigger`, `{"cmd":"status"}`, `{"cmd":"open-ui"}`, `{"cmd":"hide-orb"}`, `{"cmd":"show-orb"}` |
 | `$XDG_RUNTIME_DIR/openatat/status.json` | Omarchy Quickshell bar chip (`openatat.chip`) | Written by `openatatd` on idle / busy / error. No extra GPU surface. |
 
 The product path needs `fcitx5-openatat` installed and Fcitx5 running. `--demo` / `openatatd trigger` stay available without the addon.
@@ -288,7 +289,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 
 - Mac `NSPanel` + ScreenCaptureKit + AX + Finder. **Done for the overlay / trigger / C1 / insert / C10 / Finder / handoff path.**
 - Windows `WS_EX_NOACTIVATE` + WGC + UIA. **Done for the overlay / trigger / C1 / insert / C10 / Explorer / handoff path.**
-- Orb (no summon hotkey).
+- Orb (no summon hotkey). **Done.** Click opens an empty prompt (no C1). C16 drop is live. Hide is this-launch only via socket / right-click (Mac: NSStatusItem).
 - Studio / annotation in `openatat-ui`.
 - Clipboard shelf, scrolling capture, OCR, recording.
 - Nautilus: do not invent a D-Bus API; document a user-driven tile or a future GNOME extension.
@@ -309,7 +310,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 12. **No bundled model.** BYO CLI on PATH; `echo` dummy only when nothing is installed. Never splice the prompt into a shell string.
 13. **Synthetic backspaces** into the client are a last resort and must be gated on the same focus address.
 14. **AT-SPI in browsers / Electron / games** is incomplete. Clipboard-first saves the result.
-15. **Recording, scrolling, OCR, Orb, shelf, studio** are out of P0. Stubs and comments only.
+15. **Recording, scrolling, OCR, shelf, studio** are out of P0. Stubs and comments only. The Orb is implemented (not a stub).
 
 ## 9. Crate choices (P0)
 

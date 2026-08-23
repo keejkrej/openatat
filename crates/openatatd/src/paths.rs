@@ -76,6 +76,11 @@ pub fn status_file_path() -> PathBuf {
     runtime_dir().join("status.json")
 }
 
+/// Per-output Orb rest position. Hide is not stored here (this launch only).
+pub fn orb_position_path() -> PathBuf {
+    data_dir().join("orb-position.json")
+}
+
 /// Serialize tests that mutate process-wide XDG_* vars.
 #[cfg(test)]
 pub(crate) fn xdg_test_lock() -> std::sync::MutexGuard<'static, ()> {

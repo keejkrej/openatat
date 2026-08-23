@@ -46,6 +46,10 @@ where
     rx.recv().expect("main-thread job dropped")
 }
 
+pub fn enqueue_main(job: impl FnOnce() + Send + 'static) {
+    enqueue(Box::new(job));
+}
+
 fn enqueue(job: Box<dyn FnOnce() + Send>) {
     if let Some(tx) = MAIN_JOBS.get().and_then(|m| m.lock().ok().and_then(|g| g.clone())) {
         let _ = tx.send(job);
@@ -81,12 +85,13 @@ pub fn run_daemon_host(start_socket: impl FnOnce() + Send + 'static) -> Result<(
     let mut tap = MacTapBackend::default();
     let _ = tap.start();
     crate::daemon::start_presence_and_selection();
+    crate::orb::start();
     std::thread::Builder::new()
         .name("openatat-sock".into())
         .spawn(start_socket)
         .map_err(|e| Error::msg(format!("socket thread: {e}")))?;
 
-    eprintln!("openatatd: idle — NSPanel unmapped, no GPU window, accessory policy");
+    eprintln!("openatatd: idle — Orb NSPanel mapped, overlay unmapped, accessory policy");
 
     let app = NSApplication::sharedApplication(mtm);
     // Drain jobs alongside NSApp. A zero-timeout poll keeps the socket
@@ -97,13 +102,16 @@ pub fn run_daemon_host(start_socket: impl FnOnce() + Send + 'static) -> Result<(
         }
         let mode = objc2_foundation::ns_string!("kCFRunLoopDefaultMode");
         let until = objc2_foundation::NSDate::dateWithTimeIntervalSinceNow(0.05);
+        crate::orb::macos_pump();
         if let Some(event) = app.nextEventMatchingMask_untilDate_inMode_dequeue(
             NSEventMask::Any,
             Some(&until),
             mode,
             true,
         ) {
-            app.sendEvent(&event);
+            if !crate::orb::macos_handle_event(&event) {
+                app.sendEvent(&event);
+            }
         }
     }
 }

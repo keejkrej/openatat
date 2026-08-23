@@ -114,6 +114,10 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
         dirty: true,
         entry: session.entry,
         mods: Modifiers::default(),
+        dropped_files: session.dropped_files.clone(),
+        dropped_text: session.dropped_text.clone(),
+        finder_cwd: session.finder_cwd.clone(),
+        finder_files: session.finder_files.clone(),
     };
 
     while overlay.end.is_none() {
@@ -129,6 +133,8 @@ pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     if !overlay.has_tile {
         session.still = None;
     }
+    session.dropped_files = overlay.dropped_files;
+    session.dropped_text = overlay.dropped_text;
     Ok(overlay.end.unwrap_or(OverlayEnd::Cancelled))
 }
 
@@ -159,6 +165,10 @@ struct Overlay {
     selection: Option<TextSelection>,
     prompt_action: Option<PromptAction>,
     mods: Modifiers,
+    dropped_files: Vec<std::path::PathBuf>,
+    dropped_text: Vec<String>,
+    finder_cwd: Option<std::path::PathBuf>,
+    finder_files: Vec<std::path::PathBuf>,
 }
 
 impl Overlay {
@@ -411,16 +421,30 @@ impl Overlay {
             launch_prompt = format!("{launch_prompt}\n\nSelected text:\n{}", sel.text());
         }
         let _ = history::append_prompt(self.entry, &history_prompt);
-        let attachments = if self.has_tile {
-            self.still_png
-                .as_ref()
-                .map(|png| Attachment::Still { png: png.clone() })
-                .into_iter()
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let attachments = self.attachments();
         self.launch_agent(qh, &launch_prompt, &attachments);
+    }
+
+    fn attachments(&self) -> Vec<Attachment> {
+        let mut out = Vec::new();
+        if self.has_tile {
+            if let Some(png) = self.still_png.as_ref() {
+                out.push(Attachment::Still { png: png.clone() });
+            }
+        }
+        if let Some(cwd) = self.finder_cwd.as_ref() {
+            out.push(Attachment::WorkingDir { path: cwd.clone() });
+        }
+        for path in &self.finder_files {
+            out.push(Attachment::File { path: path.clone() });
+        }
+        for path in &self.dropped_files {
+            out.push(Attachment::File { path: path.clone() });
+        }
+        for text in &self.dropped_text {
+            out.push(Attachment::Snippet { text: text.clone() });
+        }
+        out
     }
 
     fn run_handoff(&mut self, qh: &QueueHandle<Self>) {
@@ -449,15 +473,7 @@ impl Overlay {
             launch_prompt = format!("{launch_prompt}\n\nSelected text:\n{}", sel.text());
         }
         let _ = history::append_prompt(EntryPoint::Handoff, &history_prompt);
-        let attachments = if self.has_tile {
-            self.still_png
-                .as_ref()
-                .map(|png| Attachment::Still { png: png.clone() })
-                .into_iter()
-                .collect::<Vec<_>>()
-        } else {
-            Vec::new()
-        };
+        let attachments = self.attachments();
         match handoff::run(&Handoff {
             prompt: &launch_prompt,
             attachments: &attachments,

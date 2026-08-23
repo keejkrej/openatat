@@ -6,7 +6,8 @@
 //!   C10 selection bar lives in `crate::selection` (native layer-shell, not here),
 //!   C11–C12 file manager (Nautilus has no selection D-Bus API),
 //!   C13 current clipboard tile, C14 clipboard shelf, C15 app-layout,
-//!   C16 Orb drop, C17 annotation, C18 video trim, C19 record bezel.
+//!   C16 Orb drop lives in `crate::orb` (Wayland / Cocoa / Win32 drop target),
+//!   C17 annotation, C18 video trim, C19 record bezel.
 //!
 //! gpui `ScreenCaptureFrame` is a stub — capture stays in this daemon.
 

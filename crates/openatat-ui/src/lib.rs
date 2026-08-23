@@ -27,7 +27,7 @@ USAGE:
   openatat-ui --help
 
 This process is spawned on demand and quits when the last window closes.
-It is not the @@ overlay. Overlay / trigger / insert / capture stay in openatatd.
+It is not the @@ overlay or the Orb. Overlay / Orb / trigger / insert / capture stay in openatatd.
 Activating this window is fine.
 
 Build the GPU window with: cargo build -p openatat-ui --features gpui

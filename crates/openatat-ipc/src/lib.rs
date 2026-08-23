@@ -47,7 +47,7 @@ pub enum EntryPoint {
     Demo,
     /// Finder / Nautilus — not implemented (Nautilus has no selection D-Bus API).
     FileManager,
-    /// Orb click — P2.
+    /// Orb click or drop. No auto-still (C1 stays on typed `@@`).
     Orb,
     /// Super+Return / Handoff opened the user's terminal.
     Handoff,
@@ -94,6 +94,10 @@ pub enum DaemonRequest {
     /// Bar-chip presence. Does not summon the overlay or take the session lock.
     Status,
     Ping,
+    /// Hide the resting Orb for the rest of this launch. Does not disable `@@`.
+    HideOrb,
+    /// Show the resting Orb again (this launch only; next launch starts shown).
+    ShowOrb,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,6 +227,16 @@ mod tests {
         let ping = DaemonRequest::Ping.encode().unwrap();
         assert_eq!(DaemonRequest::decode(&ping).unwrap(), DaemonRequest::Ping);
         assert_eq!(ping, r#"{"cmd":"ping"}"#);
+    }
+
+    #[test]
+    fn hide_and_show_orb_roundtrip() {
+        let hide = DaemonRequest::HideOrb.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&hide).unwrap(), DaemonRequest::HideOrb);
+        assert_eq!(hide, r#"{"cmd":"hide-orb"}"#);
+        let show = DaemonRequest::ShowOrb.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&show).unwrap(), DaemonRequest::ShowOrb);
+        assert_eq!(show, r#"{"cmd":"show-orb"}"#);
     }
 
     #[test]
