@@ -16,7 +16,7 @@ pub fn config_dir() -> PathBuf {
     home_dir().join(".config/openatat")
 }
 
-/// BYO CLI template / provider pick. Edit on disk; no Settings UI yet.
+/// BYO CLI template / provider pick. Edit on disk or via `openatat-ui`.
 pub fn agent_config_path() -> PathBuf {
     config_dir().join("agent.toml")
 }

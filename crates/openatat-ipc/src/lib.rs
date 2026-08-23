@@ -51,6 +51,15 @@ pub struct HistoryRecord {
     pub prompt: String,
 }
 
+/// Which `openatat-ui` surface the daemon should spawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum UiPage {
+    #[default]
+    Settings,
+    History,
+}
+
 /// Messages the IME addon / `openatatd trigger` send to the applet.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "kebab-case")]
@@ -63,6 +72,11 @@ pub enum DaemonRequest {
     /// Dev helper: feed committed text without a compositor seat.
     CommitText {
         text: String,
+    },
+    /// Spawn `openatat-ui` (Settings / History). Not a global hotkey.
+    OpenUi {
+        #[serde(default)]
+        page: UiPage,
     },
     Ping,
 }
@@ -119,5 +133,16 @@ mod tests {
         assert!(obj.contains_key("timestamp"));
         assert!(obj.contains_key("entry"));
         assert!(obj.contains_key("prompt"));
+    }
+
+    #[test]
+    fn open_ui_roundtrip() {
+        let req = DaemonRequest::OpenUi {
+            page: UiPage::History,
+        };
+        let line = req.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), req);
+        assert!(line.contains("open-ui"));
+        assert!(line.contains("history"));
     }
 }

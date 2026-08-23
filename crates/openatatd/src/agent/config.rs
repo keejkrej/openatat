@@ -10,7 +10,7 @@ use super::template::CommandTemplate;
 use crate::error::Result;
 use crate::paths::agent_config_path;
 
-/// On-disk settings. Edit this file; there is no Settings UI in this PR.
+/// On-disk settings. Edit this file or use `openatat-ui` Settings.
 ///
 /// ```toml
 /// # auto = first provider binary found on PATH

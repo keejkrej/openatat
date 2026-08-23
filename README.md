@@ -11,7 +11,7 @@ Apache-2.0. No bundled LLM.
 | Process | Role |
 | --- | --- |
 | `openatatd` | Always-on native applet. Owns the `@@` overlay, trigger, insert, capture, and (later) Orb + selection bar. Idle maps **no** surface and starts **no** GPU window. |
-| `openatat-ui` | gpui-ce, **on demand**. Settings, studio/annotation, history, first-run. Quit when idle. P0 is a placeholder binary so we do not pull a GPU stack into `cargo test`. |
+| `openatat-ui` | gpui-ce, **on demand**. Settings + history browser (studio / first-run later). Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
 
@@ -129,7 +129,30 @@ Optional env:
 | `OPENATAT_INSERT` | Headless path also runs clipboard + insert. |
 | `OPENATAT_DEMO` | Same as `--demo`. |
 
-`openatat-ui` prints the P0 placeholder and exits.
+### Settings + History (`openatat-ui`)
+
+`openatat-ui` is a **separate** gpui-ce process. Activating it is fine — this is not the `@@` overlay. It exits when the last window closes.
+
+```bash
+# Real window (needs gpui-ce + Linux GPU/Wayland headers; see below)
+cargo run -p openatat-ui --features gpui -- --settings
+cargo run -p openatat-ui --features gpui -- --history
+
+# From a running build: daemon just execs the sibling binary
+cargo build -p openatat-ui --features gpui
+cargo run -p openatatd -- --settings    # or --history
+# IPC (newline JSON on $XDG_RUNTIME_DIR/openatat/trigger.sock):
+# {"cmd":"open-ui","page":"settings"}
+# {"cmd":"open-ui","page":"history"}
+```
+
+Settings writes `~/.config/openatat/agent.toml` (provider + argv list). Unknown keys and comments are kept. History reads `~/.local/share/openatat/history.jsonl` newest first; **Reuse** copies/prints the prompt only. Clear History asks for a second click. Screenshots and agent output are not in the file and are never shown.
+
+The Permissions tab names what each optional Linux grant unlocks (grim, hyprctl, clipboard, AT-SPI, Fcitx5). It does **not** request OS permissions.
+
+`cargo test --workspace` builds `openatat-ui` **without** gpui-ce. A binary built that way exits 2 and tells you to rebuild with `--features gpui`.
+
+gpui-ce 0.3 on Linux needs compile-time headers that this cloud VM often lacks: `libxkbcommon-dev`, `libwayland-dev`, `libvulkan-dev`, and usually `libfontconfig-dev`. Runtime still needs Vulkan + a Wayland or X11 display. Missing those libs is a real build gap — do not treat a header-less compile as success.
 
 ## Permissions (Linux)
 
@@ -149,10 +172,10 @@ History is local: `~/.local/share/openatat/history.jsonl` (`id`, `timestamp`, `e
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
 - Mac overlay (`NSPanel` nonactivating), ScreenCaptureKit, AX insert.
 - Windows overlay (`WS_EX_NOACTIVATE`), WGC, UI Automation.
-- `openatat-ui` Settings / studio / first-run (gpui-ce).
+- `openatat-ui` studio / first-run (Settings + history are implemented).
 - Orb, selection bar, clipboard shelf, Finder/Nautilus (Nautilus has **no** selection D-Bus API).
 - Recording, scrolling capture, OCR, annotation studio (C6–C19 except comments).
-- Handoff to a terminal / Settings UI (provider pick is `agent.toml` on disk).
+- Handoff to a terminal.
 
 C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented.
 
@@ -161,7 +184,7 @@ C1 (auto-still via grim, long-edge ~1760, removable tile) is implemented.
 ```
 crates/openatat-ipc     shared JSON protocol
 crates/openatatd        native applet
-crates/openatat-ui      gpui-ce placeholder
+crates/openatat-ui      gpui-ce Settings + history (`--features gpui`)
 ime/fcitx5-openatat     Fcitx5 module (product @@ trigger)
 ```
 
