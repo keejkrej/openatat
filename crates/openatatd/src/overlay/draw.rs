@@ -6,6 +6,11 @@ pub const POPOVER_W: u32 = 460;
 pub const POPOVER_H: u32 = 300;
 pub const BAR_W: u32 = crate::selection::BAR_W;
 pub const BAR_H: u32 = crate::selection::BAR_H;
+pub const SHELF_W: u32 = 460;
+pub const SHELF_H: u32 = 360;
+pub const SHELF_ROW_H: u32 = 22;
+pub const SHELF_LIST_Y: u32 = 118;
+pub const SHELF_VISIBLE: usize = 8;
 
 pub const COL_BG: u32 = 0xFF1A1B26;
 pub const COL_PANEL: u32 = 0xFF24283B;
@@ -23,6 +28,8 @@ pub enum Phase {
     Running,
     Preview,
     Refine,
+    /// C14 clipboard history shelf (search + list).
+    Shelf,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +39,9 @@ pub struct Frame {
     pub preview: String,
     pub has_tile: bool,
     pub status: String,
+    pub shelf_query: String,
+    pub shelf_lines: Vec<String>,
+    pub shelf_sel: usize,
 }
 
 pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &[u8])>) -> Vec<u8> {
@@ -61,6 +71,9 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
     match frame.phase {
         Phase::Bar => {
             render_bar(&mut buf, width, height);
+        }
+        Phase::Shelf => {
+            render_shelf(&mut buf, width, height, frame);
         }
         Phase::Prompt => {
             text(
@@ -156,7 +169,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         }
     }
 
-    if frame.has_tile && frame.phase != Phase::Bar {
+    if frame.has_tile && frame.phase != Phase::Bar && frame.phase != Phase::Shelf {
         fill_rect(&mut buf, width, 20, 180, 128, 72, COL_TILE);
         if let Some((tw, th, pixels)) = thumb {
             blit(&mut buf, width, 24, 184, tw, th, pixels);
@@ -169,7 +182,7 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         text(&mut buf, width, 166, 212, "edit", COL_BG, 1);
     }
 
-    if frame.phase != Phase::Bar {
+    if frame.phase != Phase::Bar && frame.phase != Phase::Shelf {
         text(
             &mut buf,
             width,
@@ -201,6 +214,83 @@ const BAR_BTNS: &[(&str, BarHit, u32)] = &[
     ("Summarize", BarHit::Summarize, 210),
     ("Explain", BarHit::Explain, 310),
 ];
+
+fn render_shelf(buf: &mut [u8], width: u32, height: u32, frame: &Frame) {
+    text(
+        buf,
+        width,
+        20,
+        18,
+        "Clipboard",
+        COL_ACCENT,
+        2,
+    );
+    text(
+        buf,
+        width,
+        20,
+        52,
+        "Type to search  Return pastes  Super+Return tile  Esc",
+        COL_MUTED,
+        1,
+    );
+    fill_rect(buf, width, 20, 72, width.saturating_sub(40), 28, COL_BG);
+    let q = truncate(&frame.shelf_query, 48);
+    let caret = format!("{q}_");
+    text(buf, width, 26, 80, &caret, COL_TEXT, 1);
+
+    if frame.shelf_lines.is_empty() {
+        text(
+            buf,
+            width,
+            26,
+            SHELF_LIST_Y + 8,
+            "No clips yet. Copy in a normal field.",
+            COL_MUTED,
+            1,
+        );
+    } else {
+        for (i, line) in frame.shelf_lines.iter().take(SHELF_VISIBLE).enumerate() {
+            let y = SHELF_LIST_Y + (i as u32) * SHELF_ROW_H;
+            if i == frame.shelf_sel {
+                fill_rect(
+                    buf,
+                    width,
+                    16,
+                    y,
+                    width.saturating_sub(32),
+                    SHELF_ROW_H - 2,
+                    COL_TILE,
+                );
+            }
+            text(buf, width, 26, y + 6, &truncate(line, 50), COL_TEXT, 1);
+        }
+    }
+    text(
+        buf,
+        width,
+        20,
+        height.saturating_sub(28),
+        &frame.status,
+        COL_MUTED,
+        1,
+    );
+}
+
+pub fn hit_shelf_row(x: f64, y: f64, n: usize) -> Option<usize> {
+    if x < 16.0 || n == 0 {
+        return None;
+    }
+    let top = f64::from(SHELF_LIST_Y);
+    if y < top {
+        return None;
+    }
+    let i = ((y - top) / f64::from(SHELF_ROW_H)) as isize;
+    if i < 0 || i >= n as isize || i >= SHELF_VISIBLE as isize {
+        return None;
+    }
+    Some(i as usize)
+}
 
 fn render_bar(buf: &mut [u8], width: u32, height: u32) {
     fill_rect(buf, width, 0, 0, width, height, COL_BG);
@@ -377,6 +467,9 @@ mod tests {
             preview: String::new(),
             has_tile: false,
             status: "idle".into(),
+            shelf_query: String::new(),
+            shelf_lines: Vec::new(),
+            shelf_sel: 0,
         };
         let buf = render(64, 32, &frame, None);
         assert_eq!(buf.len(), 64 * 32 * 4);
@@ -418,8 +511,33 @@ mod tests {
             preview: String::new(),
             has_tile: false,
             status: String::new(),
+            shelf_query: String::new(),
+            shelf_lines: Vec::new(),
+            shelf_sel: 0,
         };
         let buf = render(BAR_W, BAR_H, &frame, None);
         assert_eq!(buf.len(), (BAR_W * BAR_H * 4) as usize);
+    }
+
+    #[test]
+    fn shelf_row_hit_and_render() {
+        assert_eq!(hit_shelf_row(30.0, f64::from(SHELF_LIST_Y) + 4.0, 3), Some(0));
+        assert_eq!(
+            hit_shelf_row(30.0, f64::from(SHELF_LIST_Y) + f64::from(SHELF_ROW_H) + 2.0, 3),
+            Some(1)
+        );
+        assert_eq!(hit_shelf_row(30.0, 10.0, 3), None);
+        let frame = Frame {
+            phase: Phase::Shelf,
+            prompt: String::new(),
+            preview: String::new(),
+            has_tile: false,
+            status: "recording on".into(),
+            shelf_query: "hi".into(),
+            shelf_lines: vec!["one".into(), "two".into()],
+            shelf_sel: 1,
+        };
+        let buf = render(SHELF_W, SHELF_H, &frame, None);
+        assert_eq!(buf.len(), (SHELF_W * SHELF_H * 4) as usize);
     }
 }

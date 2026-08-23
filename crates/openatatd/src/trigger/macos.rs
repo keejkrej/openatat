@@ -111,6 +111,7 @@ mod ffi {
             buffer: *mut u16,
         );
         pub fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
+        pub fn CGEventGetFlags(event: CGEventRef) -> u64;
         pub fn CGEventGetType(event: CGEventRef) -> u32;
         pub fn CFMachPortCreateRunLoopSource(
             alloc: *mut c_void,
@@ -180,6 +181,25 @@ unsafe extern "C" fn tap_callback(
     if daemon::is_session_busy() {
         return event;
     }
+    let flags = ffi::CGEventGetFlags(event);
+    let keycode = ffi::CGEventGetIntegerValueField(event, ffi::K_CG_KEYBOARD_EVENT_KEYCODE);
+    // ⌘⇧V opens the shelf. Not a @@ summon. Listen-only: we do not swallow.
+    let cmd = flags & 0x0010_0000 != 0;
+    let shift = flags & 0x0002_0000 != 0;
+    let ctrl = flags & 0x0004_0000 != 0;
+    let alt = flags & 0x0008_0000 != 0;
+    if crate::shelf::is_shelf_shortcut(
+        crate::shelf::ShelfOs::Mac,
+        cmd,
+        shift,
+        ctrl,
+        alt,
+        false,
+        if keycode == 9 { 'v' } else { '?' },
+    ) {
+        daemon::summon_shelf();
+        return event;
+    }
     // Listen-only: we never modify or swallow the CGEvent. @@ is removed via AX.
     let secure_event_input = ffi::IsSecureEventInputEnabled() != 0;
     let ax_secure = a11y::probe_field_kind() == crate::trigger::FieldKind::Secure;
@@ -198,7 +218,6 @@ unsafe extern "C" fn tap_callback(
         let kind = crate::trigger::macos_policy::field_kind(secure_event_input, ax_secure);
         on_trigger_fired(kind, action);
     }
-    let _ = ffi::CGEventGetIntegerValueField(event, ffi::K_CG_KEYBOARD_EVENT_KEYCODE);
     event
 }
 

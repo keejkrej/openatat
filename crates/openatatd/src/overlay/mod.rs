@@ -1,16 +1,15 @@
 //! Native overlay. Not gpui.
 //!
-//! Linux: one compositor client hosts both the `@@` popover and the C10
-//! selection bar (`zwlr_layer_shell_v1` + `wl_shm`). Idle maps no overlay
-//! surface; the Orb is a separate layer-shell surface. macOS: NSPanel
-//! nonactivating. Windows: `WS_EX_NOACTIVATE` popover.
-//! Session / Tab / R / handoff live in [`controller`].
+//! Linux: one compositor client hosts the `@@` popover, the C10 selection
+//! bar, and the C14 clipboard shelf (`zwlr_layer_shell_v1` + `wl_shm`). Idle
+//! maps no overlay surface; the Orb is a separate layer-shell surface.
+//! macOS: NSPanel nonactivating. Windows: `WS_EX_NOACTIVATE` popover.
+//! Session / Tab / R / handoff / shelf live in [`controller`].
 
 use crate::capture::Still;
 use crate::error::Result;
 use crate::session::Session;
 
-#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
 pub(crate) mod controller;
 mod draw;
 
@@ -29,12 +28,17 @@ pub enum OverlayEnd {
     Copied,
     /// Super+Return / Handoff opened a terminal session.
     Handoff,
+    /// C14 shelf Return wrote the clip (clipboard-first, then insert).
+    Pasted,
+    /// C14 shelf Super+Return: open the @@ overlay with the clip as a tile.
+    ShelfAsk,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKind {
     Prompt,
     SelectionBar,
+    Shelf,
 }
 
 pub fn run(session: &mut Session) -> Result<OverlayEnd> {
@@ -43,6 +47,10 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
 
 pub fn run_bar(session: &mut Session) -> Result<OverlayEnd> {
     run_kind(session, OverlayKind::SelectionBar)
+}
+
+pub fn run_shelf(session: &mut Session) -> Result<OverlayEnd> {
+    run_kind(session, OverlayKind::Shelf)
 }
 
 fn run_kind(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {

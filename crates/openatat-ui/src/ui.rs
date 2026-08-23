@@ -382,6 +382,29 @@ impl Shell {
                 "Writes {}  ·  unknown keys and comments are kept",
                 crate::paths::agent_config_path().display()
             )))
+            .child(heading("Clipboard shelf"))
+            .child(div().text_sm().text_color(rgb(0x9aa0a6)).child(
+                "C14 records copies locally (not history.jsonl). Passwords are never stored. \
+                 Off stops new items; existing clips stay until you clear ~/.local/share/openatat/clipboard-shelf.json.",
+            ))
+            .child(chip(
+                if self.edit.clipboard_shelf {
+                    "Recording on"
+                } else {
+                    "Recording off"
+                },
+                self.edit.clipboard_shelf,
+                cx,
+                |this, cx| {
+                    this.edit.clipboard_shelf = !this.edit.clipboard_shelf;
+                    this.status = SharedString::from(if this.edit.clipboard_shelf {
+                        "Clipboard shelf recording on (Save to write agent.toml)"
+                    } else {
+                        "Clipboard shelf recording off (Save to write agent.toml)"
+                    });
+                    cx.notify();
+                },
+            ))
             .child(heading("Tools"))
             .child(div().text_sm().text_color(rgb(0x9aa0a6)).child(
                 "Open Annotate… takes a local PNG or JPEG. Nothing is uploaded. \

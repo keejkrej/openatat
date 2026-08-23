@@ -19,6 +19,34 @@ pub fn tab_insert(text: &str, expected: &FocusSnapshot) -> Result<InsertOutcome>
     tab_insert_replace(text, expected, None)
 }
 
+/// Shelf Return: write the original offer first, then the same abort-on-focus
+/// change as Tab. AT-SPI insert is plain; formatting stays on the clipboard.
+pub fn paste_formatted(
+    plain: &str,
+    html: Option<&str>,
+    rtf: Option<&str>,
+    image: Option<&[u8]>,
+    expected: &FocusSnapshot,
+) -> Result<InsertOutcome> {
+    clipboard::write_offer(plain, html, rtf, image)?;
+    if focus::address_changed(expected) {
+        return Ok(InsertOutcome::AbortedFocusChanged);
+    }
+    if plain.is_empty() {
+        return Ok(InsertOutcome::CopiedOnly);
+    }
+    match platform_write(plain, None) {
+        Ok(true) => Ok(InsertOutcome::Inserted),
+        Ok(false) => Ok(InsertOutcome::CopiedOnly),
+        Err(e) => {
+            eprintln!(
+                "openatatd: shelf insert failed after clipboard write ({e}); item is still copied"
+            );
+            Ok(InsertOutcome::CopiedOnly)
+        }
+    }
+}
+
 /// Replace `[start, end)` after confirm. Still clipboard-first. No backspaces.
 pub fn tab_insert_replace(
     text: &str,

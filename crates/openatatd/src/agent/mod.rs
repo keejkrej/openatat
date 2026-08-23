@@ -10,7 +10,7 @@ mod providers;
 mod refine;
 mod template;
 
-pub use config::{AgentConfig, HandoffSection};
+pub use config::{AgentConfig, ClipboardSection, HandoffSection};
 pub use providers::{ProviderKind, REGISTRY};
 pub use refine::RefineSession;
 pub use template::{CommandTemplate, PromptPass, RenderedCommand};

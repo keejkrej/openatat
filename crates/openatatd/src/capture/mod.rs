@@ -5,7 +5,9 @@
 //!   C6 scrolling, C7 video, C8 GIF, C9 OCR,
 //!   C10 selection bar lives in `crate::selection` (native layer-shell, not here),
 //!   C11–C12 file manager (Nautilus has no selection D-Bus API),
-//!   C13 current clipboard tile, C14 clipboard shelf, C15 app-layout,
+//!   C13 current clipboard tile (can wait),
+//!   C14 clipboard shelf lives in `crate::shelf` (native overlay, not here),
+//!   C15 app-layout,
 //!   C16 Orb drop lives in `crate::orb` (Wayland / Cocoa / Win32 drop target),
 //!   C17 annotation lives in `openatat-ui` (spawned via overlay Edit),
 //!   C18 video trim, C19 record bezel.

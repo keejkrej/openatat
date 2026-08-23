@@ -13,7 +13,7 @@ use objc2_foundation::{
 };
 
 use super::controller::{OverlayController, OverlayKey};
-use super::draw::{self, BAR_H, BAR_W, POPOVER_H, POPOVER_W};
+use super::draw::{self, BAR_H, BAR_W, POPOVER_H, POPOVER_W, SHELF_H};
 use super::{OverlayEnd, OverlayKind};
 use crate::error::{Error, Result};
 use crate::macos_runtime;
@@ -33,7 +33,7 @@ fn run_on_main(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     let mtm = macos_runtime::ensure_app()?;
     let mut ctl = OverlayController::from_session(session, kind);
     let (w, h) = (ctl.width, ctl.height);
-    let panel = create_panel(mtm, w, h)?;
+    let panel = create_panel(mtm, w, h, kind)?;
     let view = attach_image_view(&panel, w, h);
     paint(&ctl, &view);
 
@@ -67,7 +67,12 @@ fn run_on_main(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     Ok(ctl.end.unwrap_or(OverlayEnd::Cancelled))
 }
 
-fn create_panel(mtm: MainThreadMarker, w: u32, h: u32) -> Result<Retained<NSPanel>> {
+fn create_panel(
+    mtm: MainThreadMarker,
+    w: u32,
+    h: u32,
+    kind: OverlayKind,
+) -> Result<Retained<NSPanel>> {
     let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
     let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(w as f64, h as f64));
     let panel = unsafe {
@@ -95,7 +100,11 @@ fn create_panel(mtm: MainThreadMarker, w: u32, h: u32) -> Result<Retained<NSPane
     if let Some(screen) = objc2_app_kit::NSScreen::mainScreen() {
         let frame = screen.visibleFrame();
         let x = frame.origin.x + ((frame.size.width - w as f64) / 2.0).max(24.0);
-        let y = frame.origin.y + frame.size.height - h as f64 - 80.0;
+        let y = if kind == OverlayKind::Shelf {
+            frame.origin.y + 24.0
+        } else {
+            frame.origin.y + frame.size.height - h as f64 - 80.0
+        };
         panel.setFrameTopLeftPoint(NSPoint::new(x, y + h as f64));
     }
     Ok(panel)
@@ -173,6 +182,12 @@ fn map_key(chars: &str, keycode: u16, meta: bool) -> OverlayKey {
     if keycode == 51 {
         return OverlayKey::Backspace;
     }
+    if keycode == 126 {
+        return OverlayKey::Up;
+    }
+    if keycode == 125 {
+        return OverlayKey::Down;
+    }
     if chars.eq_ignore_ascii_case("r") {
         return OverlayKey::R;
     }
@@ -200,5 +215,5 @@ fn bgra_to_png(width: u32, height: u32, bgra: &[u8]) -> Result<Vec<u8>> {
 // Keep the constants referenced so a bar-sized panel still type-checks.
 #[allow(dead_code)]
 fn _bar_dims() -> (u32, u32) {
-    (BAR_W.min(POPOVER_W), BAR_H.min(POPOVER_H))
+    (BAR_W.min(POPOVER_W).min(SHELF_H), BAR_H.min(POPOVER_H))
 }

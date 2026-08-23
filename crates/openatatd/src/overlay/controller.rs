@@ -7,15 +7,18 @@ use std::path::PathBuf;
 
 use openatat_ipc::EntryPoint;
 
-use super::draw::{self, Frame, Phase, BAR_H, BAR_W, POPOVER_H, POPOVER_W};
+use super::draw::{self, Frame, Phase, BAR_H, BAR_W, POPOVER_H, POPOVER_W, SHELF_H, SHELF_W};
 use super::{OverlayEnd, OverlayKind};
 use crate::a11y::TextSelection;
 use crate::agent::{self, Attachment, Launch, RefineSession};
 use crate::handoff::{self, Handoff};
 use crate::history;
+use crate::insert::InsertOutcome;
 use crate::selection::{self, PromptAction};
 use crate::session::Session;
+use crate::shelf::{self, Clip, ShelfView};
 use crate::studio_attach::StudioAttach;
+use openatat_ipc::FocusSnapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayKey {
@@ -25,6 +28,8 @@ pub enum OverlayKey {
     Backspace,
     R,
     Digit(u8),
+    Up,
+    Down,
     Text,
 }
 
@@ -56,6 +61,9 @@ pub struct OverlayController {
     pub studio: StudioAttach,
     pub width: u32,
     pub height: u32,
+    pub focus: FocusSnapshot,
+    pub shelf: Option<ShelfView>,
+    paste_clip: fn(&Clip, &FocusSnapshot) -> crate::error::Result<InsertOutcome>,
 }
 
 impl OverlayController {
@@ -67,6 +75,7 @@ impl OverlayController {
         let (width, height) = match kind {
             OverlayKind::SelectionBar => (BAR_W, BAR_H),
             OverlayKind::Prompt => (POPOVER_W, POPOVER_H),
+            OverlayKind::Shelf => (SHELF_W, SHELF_H),
         };
         Self {
             prompt: String::new(),
@@ -78,6 +87,7 @@ impl OverlayController {
             phase: match kind {
                 OverlayKind::SelectionBar => Phase::Bar,
                 OverlayKind::Prompt => Phase::Prompt,
+                OverlayKind::Shelf => Phase::Shelf,
             },
             has_tile: session.still.is_some(),
             thumb,
@@ -93,6 +103,9 @@ impl OverlayController {
             studio: StudioAttach::default(),
             width,
             height,
+            focus: session.focus.clone(),
+            shelf: matches!(kind, OverlayKind::Shelf).then(ShelfView::load),
+            paste_clip: shelf::paste_clip,
         }
     }
 
@@ -123,6 +136,13 @@ impl OverlayController {
                 "result is not in your document until Tab · Super+Return / ⌘Return handoff"
             }
             Phase::Refine => "same attachments · new result replaces the old",
+            Phase::Shelf => {
+                if self.shelf.as_ref().is_some_and(|s| s.recording) {
+                    "clipboard shelf · recording on · contents stay on this machine"
+                } else {
+                    "clipboard shelf · recording off · existing items stay until cleared"
+                }
+            }
         };
         let prompt = if self.phase == Phase::Refine {
             self.refine.clone()
@@ -146,12 +166,19 @@ impl OverlayController {
                 self.dropped_text.len()
             ));
         }
+        let (shelf_query, shelf_lines, shelf_sel) = match &self.shelf {
+            Some(s) if self.phase == Phase::Shelf => (s.query.clone(), s.preview_rows(), s.selected),
+            _ => (String::new(), Vec::new(), 0),
+        };
         Frame {
             phase: self.phase,
             prompt,
             preview: self.preview.clone(),
             has_tile: self.has_tile,
             status,
+            shelf_query,
+            shelf_lines,
+            shelf_sel,
         }
     }
 
@@ -170,11 +197,15 @@ impl OverlayController {
 
     pub fn handle_key(&mut self, key: OverlayKey, text: Option<&str>) -> Vec<OverlayEffect> {
         let _ = self.poll_studio();
+        if self.phase == Phase::Shelf {
+            return self.handle_shelf_key(key, text);
+        }
         match key {
             OverlayKey::Escape => {
                 self.end = Some(OverlayEnd::Cancelled);
                 return Vec::new();
             }
+            OverlayKey::Up | OverlayKey::Down => return Vec::new(),
             OverlayKey::Digit(n) if self.phase == Phase::Bar => {
                 let hit = match n {
                     1 => draw::BarHit::Ask,
@@ -251,6 +282,20 @@ impl OverlayController {
 
     pub fn handle_click(&mut self, x: f64, y: f64) -> Vec<OverlayEffect> {
         let mut fx = self.poll_studio();
+        if self.phase == Phase::Shelf {
+            if draw::hit_close(x, y, self.width) {
+                self.end = Some(OverlayEnd::Cancelled);
+                return Vec::new();
+            }
+            let n = self.shelf.as_ref().map(|s| s.visible().len()).unwrap_or(0);
+            if let Some(i) = draw::hit_shelf_row(x, y, n) {
+                if let Some(s) = self.shelf.as_mut() {
+                    s.selected = i;
+                }
+                return self.shelf_paste();
+            }
+            return fx;
+        }
         if self.phase == Phase::Bar {
             if let Some(hit) = draw::hit_bar(x, y, self.width) {
                 return self.on_bar(hit);
@@ -334,6 +379,79 @@ impl OverlayController {
                 fx
             }
         }
+    }
+
+    fn handle_shelf_key(&mut self, key: OverlayKey, text: Option<&str>) -> Vec<OverlayEffect> {
+        match key {
+            OverlayKey::Escape => {
+                self.end = Some(OverlayEnd::Cancelled);
+                Vec::new()
+            }
+            OverlayKey::Return { meta: true } => self.shelf_ask(),
+            OverlayKey::Return { meta: false } => self.shelf_paste(),
+            OverlayKey::Up => {
+                if let Some(s) = self.shelf.as_mut() {
+                    s.move_sel(-1);
+                }
+                self.dirty = true;
+                vec![OverlayEffect::Redraw]
+            }
+            OverlayKey::Down => {
+                if let Some(s) = self.shelf.as_mut() {
+                    s.move_sel(1);
+                }
+                self.dirty = true;
+                vec![OverlayEffect::Redraw]
+            }
+            OverlayKey::Backspace => {
+                if let Some(s) = self.shelf.as_mut() {
+                    s.query.pop();
+                    s.clamp_selected();
+                }
+                self.dirty = true;
+                vec![OverlayEffect::Redraw]
+            }
+            OverlayKey::Text | OverlayKey::R | OverlayKey::Digit(_) => {
+                if let Some(txt) = text {
+                    if !txt.is_empty() && !txt.chars().any(|c| c.is_control()) {
+                        if let Some(s) = self.shelf.as_mut() {
+                            s.query.push_str(txt);
+                            s.selected = 0;
+                        }
+                        self.dirty = true;
+                        return vec![OverlayEffect::Redraw];
+                    }
+                }
+                Vec::new()
+            }
+            OverlayKey::Tab => Vec::new(),
+        }
+    }
+
+    fn shelf_paste(&mut self) -> Vec<OverlayEffect> {
+        let Some(clip) = self.shelf.as_ref().and_then(|s| s.selected_clip()).cloned() else {
+            return Vec::new();
+        };
+        match (self.paste_clip)(&clip, &self.focus) {
+            Ok(_) => {
+                self.end = Some(OverlayEnd::Pasted);
+            }
+            Err(_) => {
+                eprintln!("openatatd: shelf paste failed (contents not logged)");
+            }
+        }
+        Vec::new()
+    }
+
+    fn shelf_ask(&mut self) -> Vec<OverlayEffect> {
+        let Some(clip) = self.shelf.as_ref().and_then(|s| s.selected_clip()).cloned() else {
+            return Vec::new();
+        };
+        if !clip.plain.is_empty() {
+            self.dropped_text.push(clip.plain);
+        }
+        self.end = Some(OverlayEnd::ShelfAsk);
+        Vec::new()
     }
 
     fn grow_to_popover(&mut self) -> Vec<OverlayEffect> {
@@ -548,5 +666,59 @@ mod tests {
         assert!(c.still_png.is_some());
         c.handle_click(160.0, 190.0);
         assert!(!c.has_tile);
+    }
+
+    fn dummy_paste(_clip: &Clip, _: &FocusSnapshot) -> crate::error::Result<InsertOutcome> {
+        Ok(InsertOutcome::CopiedOnly)
+    }
+
+    fn shelf_ctl() -> OverlayController {
+        let mut c = OverlayController::from_session(&empty_session(), OverlayKind::Shelf);
+        c.paste_clip = dummy_paste;
+        c.shelf = Some(crate::shelf::ShelfView {
+            query: String::new(),
+            selected: 0,
+            recording: true,
+            items: vec![Clip {
+                id: "1".into(),
+                timestamp: "0".into(),
+                plain: "shelf-item".into(),
+                html: None,
+                rtf: None,
+                image_path: None,
+            }],
+        });
+        c
+    }
+
+    #[test]
+    fn shelf_return_pastes_and_esc_closes() {
+        let mut c = shelf_ctl();
+        assert_eq!(c.phase, Phase::Shelf);
+        c.handle_key(OverlayKey::Return { meta: false }, None);
+        assert_eq!(c.end, Some(OverlayEnd::Pasted));
+        let mut c = shelf_ctl();
+        c.handle_key(OverlayKey::Escape, None);
+        assert_eq!(c.end, Some(OverlayEnd::Cancelled));
+    }
+
+    #[test]
+    fn shelf_meta_return_hands_clip_as_tile() {
+        let mut c = shelf_ctl();
+        c.handle_key(OverlayKey::Return { meta: true }, None);
+        assert_eq!(c.end, Some(OverlayEnd::ShelfAsk));
+        assert_eq!(c.dropped_text, ["shelf-item"]);
+    }
+
+    #[test]
+    fn shelf_search_filters_without_logging() {
+        let mut c = shelf_ctl();
+        c.handle_key(OverlayKey::Text, Some("nope"));
+        assert!(c.shelf.as_ref().unwrap().visible().is_empty());
+        c.handle_key(OverlayKey::Backspace, None);
+        c.handle_key(OverlayKey::Backspace, None);
+        c.handle_key(OverlayKey::Backspace, None);
+        c.handle_key(OverlayKey::Backspace, None);
+        assert_eq!(c.shelf.as_ref().unwrap().visible().len(), 1);
     }
 }

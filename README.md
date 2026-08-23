@@ -10,12 +10,12 @@ Apache-2.0. No bundled LLM.
 
 | Process | Role |
 | --- | --- |
-| `openatatd` | Always-on native applet. Owns the `@@` overlay, **Orb**, C10 selection bar, trigger, insert, capture, and terminal handoff. Idle maps the **Orb** (not the overlay) and starts **no** GPU window. |
+| `openatatd` | Always-on native applet. Owns the `@@` overlay, **Orb**, C10 selection bar, trigger, insert, capture, terminal handoff, and the **C14 clipboard watch + shelf**. Idle maps the **Orb** (not the overlay / shelf) and starts **no** GPU window. |
 | `openatat-ui` | gpui-ce, **on demand**. Settings + history + **C17 studio / annotation**. First-run later. Quit when the last window closes. The GPU crate is feature-gated (`--features gpui`) so `cargo test --workspace` does not pull a GPU stack. |
 
 P0 does **not** use gpui for the overlay. gpui-ce 0.3 has LayerShell / PopUp / Transparent / `focus: false`, but that is not a nonactivating panel.
 
-- **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surfaces inside `openatatd`, software `wl_shm`. The **Orb** is mapped at idle (`KeyboardInteractivity::None`, input region = the circle). The overlay / selection bar use `OnDemand` only while up. Neither is a gpui window.
+- **Omarchy / Hyprland:** native `zwlr_layer_shell_v1` surfaces inside `openatatd`, software `wl_shm`. The **Orb** is mapped at idle (`KeyboardInteractivity::None`, input region = the circle). The overlay / selection bar / clipboard shelf use `OnDemand` only while up. None of them is a gpui window.
 - **macOS:** `NSPanel` + `NSWindowStyleMaskNonactivatingPanel` (`canJoinAllSpaces`, `fullScreenAuxiliary`) for the overlay **and** the Orb. Never becomes the active app. `NSStatusItem` **Show Orb** toggle (this launch). Trigger is a listen-only event tap feeding `ImeFilter` — not a global summon hotkey.
 - **Windows:** `WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED`. Never calls `SetForegroundWindow`. Trigger is a process-local keyboard hook (Raw Input fallback) feeding `ImeFilter` — not a global summon hotkey.
 
@@ -111,6 +111,38 @@ Headless (no display; selected text is not written to history):
 cargo run -p openatatd -- --headless --selection='some text' --action=summarize
 ```
 
+### Clipboard history shelf (C14)
+
+A shelf of everything you copied (plain + html/rtf when present). Searchable. Return pastes (clipboard-first write, then insert if a text field is still focused — same abort-on-focus-change as Tab). Super+Return / `⌘Return` / Win+Return hands the clip to the existing BYO CLI overlay as a tile (no auto C1). Esc dismisses. Passwords never enter the shelf (secure field re-probed on every copy). History never leaves the machine. The file is `~/.local/share/openatat/clipboard-shelf.json` — **not** `history.jsonl`.
+
+This is a **clipboard shortcut**, not a `@@` summon. The daemon does **not** install a Hyprland bind and does not steal screenshot keys.
+
+```bash
+# terminal A: openatatd
+# terminal B
+cargo run -p openatatd -- --shelf
+# or IPC: {"cmd":"shelf"}
+```
+
+Omarchy / Hyprland — add this yourself (the applet will not write it):
+
+```ini
+# ~/.config/hypr/hyprland.conf
+bind = SUPER SHIFT, V, exec, openatatd --shelf
+```
+
+macOS: `⌘⇧V` if Input Monitoring is already granted, else `--shelf`. Windows: `Win+Shift+V` on the process-local hook, else `--shelf`.
+
+Turn recording off without clearing old items:
+
+```toml
+# ~/.config/openatat/agent.toml
+[clipboard]
+shelf = false
+```
+
+Default is **on**. Settings has the same switch. Overlay / Orb / studio are unchanged.
+
 ## Product `@@` trigger (Fcitx5)
 
 This is the real path: type `@@` in any text field. Requires Fcitx5 and the
@@ -165,6 +197,9 @@ provider = "auto"
 
 # [handoff]
 # terminal = "kitty"
+
+# [clipboard]
+# shelf = true   # default on. false stops recording; existing items stay.
 ```
 
 `OPENATAT_AGENT` remains an escape hatch: that binary is exec’d directly and the prompt is written to stdin (still not interpolated into a shell).
@@ -337,7 +372,7 @@ Optional; deny one and the rest still works.
 
 - **grim** — C1 auto-still of the focused Hyprland output. Silent. Do not route auto-attach through the xdg-desktop-portal screenshot picker.
 - **hyprctl** — active output name + `activewindow` address (insert abort).
-- **wlr-data-control** or **wl-copy** — clipboard-first insert.
+- **wlr-data-control** or **wl-copy** — clipboard-first insert and C14 shelf watch.
 - **AT-SPI** (`org.a11y.Bus`) — insert into a focused text field; password-role probe every key; C10 selection (`GetText` + selection offsets).
 - **Fcitx5 addon (`fcitx5-openatat`)** — product `@@` trigger. See above.
 - **layer-shell** — the popover. Hyprland provides it.
@@ -360,14 +395,14 @@ Optional. Deny one and the rest still works.
 - **Graphics Capture** — C1 via WGC `CreateForMonitor`. Settings → Privacy & security → Screenshots and apps. Denied: skip the tile. Not `GraphicsCapturePicker`.
 - **Explorer shell** — cwd + selected PIDLs via `IShellWindows` → `IFolderView` when Explorer is frontmost. Title bar is never parsed. Context-menu DLL waits.
 
-History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, `timestamp`, `entry`, `prompt` only). Windows: `%LOCALAPPDATA%\openatat\history.jsonl`. Prompts never go through our servers.
+History is local: `~/.local/share/openatat/history.jsonl` on Linux/macOS (`id`, `timestamp`, `entry`, `prompt` only). Windows: `%LOCALAPPDATA%\openatat\history.jsonl`. The C14 shelf is a separate file (`clipboard-shelf.json`). Prompts never go through our servers.
 
 ## What is stubbed
 
 - IBus engine (optional later). Fcitx5 product trigger is `ime/fcitx5-openatat`.
 - `openatat-ui` first-run tutorial (Settings + history + C17 studio are implemented).
-- Clipboard shelf, Nautilus (no selection D-Bus API).
-- Recording, scrolling capture, OCR, video studio / trim (C18). C17 still annotation is live in `openatat-ui`.
+- Nautilus (no selection D-Bus API).
+- Recording, scrolling capture, OCR, C13 current-clipboard-as-tile, video studio / trim (C18). C14 clipboard shelf and C17 still annotation are live.
 - Right-click Finder Service / Explorer context-menu DLL.
 - Windows tray icon (socket + right-click hide the Orb is enough for v1).
 

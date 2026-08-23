@@ -10,7 +10,8 @@ use std::sync::{Mutex, OnceLock};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::UI::Input::Ime::{ImmGetContext, ImmGetOpenStatus, ImmReleaseContext};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetKeyboardState, ToUnicode, VK_PACKET, VK_PROCESSKEY, VK_SHIFT,
+    GetAsyncKeyState, GetKeyboardState, ToUnicode, VK_CONTROL, VK_MENU, VK_PACKET, VK_PROCESSKEY,
+    VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, SetWindowsHookExW, UnhookWindowsHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
@@ -125,6 +126,12 @@ unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: WPARAM, lparam: LP
     let info = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
     let vk = info.vkCode;
 
+    if is_shelf_chord(vk) {
+        daemon::summon_shelf();
+        // Swallow so the client does not type V. Clipboard shortcut, not @@.
+        return LRESULT(1);
+    }
+
     if crate::overlay::windows_overlay_wants_keys() {
         crate::overlay::windows_feed_vk(vk, info.scanCode);
         // Swallow so the client does not see overlay keystrokes.
@@ -158,6 +165,24 @@ unsafe extern "system" fn ll_keyboard_proc(code: i32, wparam: WPARAM, lparam: LP
     }
     let _ = VK_PACKET;
     unsafe { CallNextHookEx(None, code, wparam, lparam) }
+}
+
+fn is_shelf_chord(vk: u32) -> bool {
+    unsafe {
+        let shift = GetAsyncKeyState(i32::from(VK_SHIFT.0)) < 0;
+        let ctrl = GetAsyncKeyState(i32::from(VK_CONTROL.0)) < 0;
+        let alt = GetAsyncKeyState(i32::from(VK_MENU.0)) < 0;
+        let win = crate::windows_runtime::win_logo_down();
+        crate::shelf::is_shelf_shortcut(
+            crate::shelf::ShelfOs::Windows,
+            false,
+            shift,
+            ctrl,
+            alt,
+            win,
+            if vk == 0x56 { 'v' } else { '?' },
+        )
+    }
 }
 
 fn unicode_from_vk(vk: u32, scan: u32) -> Option<String> {

@@ -102,6 +102,8 @@ pub enum DaemonRequest {
     HideOrb,
     /// Show the resting Orb again (this launch only; next launch starts shown).
     ShowOrb,
+    /// Open the C14 clipboard shelf. Not a `@@` summon.
+    Shelf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,6 +271,13 @@ mod tests {
             DaemonRequest::ShowOrb
         );
         assert_eq!(show, r#"{"cmd":"show-orb"}"#);
+    }
+
+    #[test]
+    fn shelf_request_roundtrip() {
+        let line = DaemonRequest::Shelf.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), DaemonRequest::Shelf);
+        assert_eq!(line, r#"{"cmd":"shelf"}"#);
     }
 
     #[test]

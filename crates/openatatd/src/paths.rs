@@ -62,6 +62,16 @@ pub fn history_path() -> PathBuf {
     data_dir().join("history.jsonl")
 }
 
+/// C14 shelf. Not `history.jsonl` (that file stays `id, timestamp, entry, prompt`).
+pub fn clipboard_shelf_path() -> PathBuf {
+    data_dir().join("clipboard-shelf.json")
+}
+
+/// Optional image bytes for cheap C14 clips.
+pub fn clipboard_shelf_dir() -> PathBuf {
+    data_dir().join("clipboard-shelf")
+}
+
 pub fn trigger_socket_path() -> PathBuf {
     runtime_dir().join("trigger.sock")
 }
@@ -136,6 +146,26 @@ mod tests {
         match old_cache {
             Some(v) => std::env::set_var("XDG_CACHE_HOME", v),
             None => std::env::remove_var("XDG_CACHE_HOME"),
+        }
+    }
+
+    #[test]
+    fn clipboard_shelf_is_not_history_jsonl() {
+        let _g = xdg_test_lock();
+        let old = std::env::var_os("XDG_DATA_HOME");
+        std::env::set_var("XDG_DATA_HOME", "/tmp/openatat-test-shelf");
+        assert_eq!(
+            clipboard_shelf_path(),
+            PathBuf::from("/tmp/openatat-test-shelf/openatat/clipboard-shelf.json")
+        );
+        assert_ne!(clipboard_shelf_path(), history_path());
+        assert_eq!(
+            history_path(),
+            PathBuf::from("/tmp/openatat-test-shelf/openatat/history.jsonl")
+        );
+        match old {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
         }
     }
 
