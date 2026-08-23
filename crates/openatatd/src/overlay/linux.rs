@@ -29,15 +29,17 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, QueueHandle};
 
-use super::draw::{self, Frame, Phase, POPOVER_H, POPOVER_W};
-use super::OverlayEnd;
+use super::draw::{self, Frame, Phase, BAR_H, BAR_W, POPOVER_H, POPOVER_W};
+use super::{OverlayEnd, OverlayKind};
+use crate::a11y::TextSelection;
 use crate::agent::{self, Attachment, Launch, RefineSession};
 use crate::error::{Error, Result};
 use crate::history;
+use crate::selection::{self, PromptAction};
 use crate::session::Session;
 use openatat_ipc::EntryPoint;
 
-pub fn run(session: &mut Session) -> Result<OverlayEnd> {
+pub fn run(session: &mut Session, kind: OverlayKind) -> Result<OverlayEnd> {
     let conn = Connection::connect_to_env().map_err(|e| Error::msg(format!("wayland: {e}")))?;
     let (globals, mut event_queue) =
         registry_queue_init(&conn).map_err(|e| Error::msg(format!("wayland registry: {e}")))?;
@@ -52,12 +54,25 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
     let surface = compositor.create_surface(&qh);
     let layer =
         layer_shell.create_layer_surface(&qh, surface, Layer::Overlay, Some("openatat"), None);
-    // Small popover, not a reserved bar, not Exclusive (that steals the seat).
-    layer.set_anchor(Anchor::TOP);
-    layer.set_margin(80, 0, 0, 0);
+    // Small popover / compact bar, not a reserved Exclusive zone (that steals the seat).
+    let (init_w, init_h, top, left) = match kind {
+        OverlayKind::SelectionBar => {
+            let p = session.placement.clone().unwrap_or(selection::Placement {
+                margin_top: 80,
+                margin_left: 0,
+            });
+            layer.set_anchor(Anchor::TOP | Anchor::LEFT);
+            (BAR_W, BAR_H, p.margin_top, p.margin_left)
+        }
+        OverlayKind::Prompt => {
+            layer.set_anchor(Anchor::TOP);
+            (POPOVER_W, POPOVER_H, 80, 0)
+        }
+    };
+    layer.set_margin(top, 0, 0, left);
     layer.set_exclusive_zone(0);
     layer.set_keyboard_interactivity(KeyboardInteractivity::OnDemand);
-    layer.set_size(POPOVER_W, POPOVER_H);
+    layer.set_size(init_w, init_h);
     layer.commit();
 
     let pool = SlotPool::new((POPOVER_W * POPOVER_H * 4) as usize, &shm)
@@ -75,8 +90,8 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
         shm,
         pool,
         layer,
-        width: POPOVER_W,
-        height: POPOVER_H,
+        width: init_w,
+        height: init_h,
         first_configure: true,
         keyboard: None,
         pointer: None,
@@ -86,7 +101,12 @@ pub fn run(session: &mut Session) -> Result<OverlayEnd> {
         refine_session: None,
         template_display: agent::resolve_selected().display(),
         still_png: session.still.as_ref().map(|s| s.png.clone()),
-        phase: Phase::Prompt,
+        phase: match kind {
+            OverlayKind::SelectionBar => Phase::Bar,
+            OverlayKind::Prompt => Phase::Prompt,
+        },
+        selection: session.selection.clone(),
+        prompt_action: None,
         has_tile: session.still.is_some(),
         thumb,
         end: None,
@@ -134,11 +154,14 @@ struct Overlay {
     end: Option<OverlayEnd>,
     dirty: bool,
     entry: EntryPoint,
+    selection: Option<TextSelection>,
+    prompt_action: Option<PromptAction>,
 }
 
 impl Overlay {
     fn ui_frame(&self) -> Frame {
         let status = match self.phase {
+            Phase::Bar => "mouse selection · Ask / Copy / Search / Summarize / Explain",
             Phase::Prompt => {
                 if self.has_tile {
                     "C1 still attached · click remove to drop it"
@@ -205,6 +228,26 @@ impl Overlay {
                 self.end = Some(OverlayEnd::Cancelled);
                 return;
             }
+            Keysym::_1 if self.phase == Phase::Bar => {
+                self.on_bar(draw::BarHit::Ask, qh);
+                return;
+            }
+            Keysym::_2 if self.phase == Phase::Bar => {
+                self.on_bar(draw::BarHit::Copy, qh);
+                return;
+            }
+            Keysym::_3 if self.phase == Phase::Bar => {
+                self.on_bar(draw::BarHit::Search, qh);
+                return;
+            }
+            Keysym::_4 if self.phase == Phase::Bar => {
+                self.on_bar(draw::BarHit::Summarize, qh);
+                return;
+            }
+            Keysym::_5 if self.phase == Phase::Bar => {
+                self.on_bar(draw::BarHit::Explain, qh);
+                return;
+            }
             Keysym::Return | Keysym::KP_Enter => {
                 if self.phase == Phase::Prompt {
                     self.run_agent(qh, false);
@@ -261,6 +304,69 @@ impl Overlay {
         }
     }
 
+    fn on_bar(&mut self, hit: draw::BarHit, qh: &QueueHandle<Self>) {
+        match hit {
+            draw::BarHit::Close => {
+                self.end = Some(OverlayEnd::Cancelled);
+            }
+            draw::BarHit::Copy => {
+                if let Some(sel) = self.held_selection() {
+                    if selection::copy_selection(sel).is_ok() {
+                        self.end = Some(OverlayEnd::Copied);
+                    }
+                }
+            }
+            draw::BarHit::Search => {
+                if let Some(sel) = self.held_selection() {
+                    if selection::search_selection(sel).is_ok() {
+                        self.end = Some(OverlayEnd::Copied);
+                    }
+                }
+            }
+            draw::BarHit::Ask => {
+                self.prompt_action = Some(PromptAction::Ask);
+                self.grow_to_popover();
+                if self.still_png.is_none() {
+                    if let Ok(still) = crate::capture::capture_active_output(None) {
+                        self.has_tile = true;
+                        self.thumb = still.thumbnail_argb(120, 64).ok();
+                        self.still_png = Some(still.png);
+                    }
+                }
+                self.phase = Phase::Prompt;
+                self.dirty = true;
+                self.draw(qh);
+            }
+            draw::BarHit::Summarize => {
+                self.prompt_action = Some(PromptAction::Summarize);
+                self.prompt = "Summarize".into();
+                self.grow_to_popover();
+                self.run_agent(qh, false);
+            }
+            draw::BarHit::Explain => {
+                self.prompt_action = Some(PromptAction::Explain);
+                self.prompt = "Explain".into();
+                self.grow_to_popover();
+                self.run_agent(qh, false);
+            }
+        }
+    }
+
+    fn grow_to_popover(&mut self) {
+        self.width = POPOVER_W;
+        self.height = POPOVER_H;
+        self.layer.set_size(POPOVER_W, POPOVER_H);
+        self.layer.commit();
+    }
+
+    /// Re-probe secure role before using the held selection. Never log the text.
+    fn held_selection(&self) -> Option<&TextSelection> {
+        if !selection::allow_held_selection() {
+            return None;
+        }
+        self.selection.as_ref()
+    }
+
     fn run_agent(&mut self, qh: &QueueHandle<Self>, is_refine: bool) {
         if is_refine && self.refine.is_empty() {
             return;
@@ -284,8 +390,16 @@ impl Overlay {
             };
             sess.apply_refine(sentence);
         }
-        let history_prompt = sess.history_prompt().to_string();
-        let launch_prompt = sess.launch_prompt();
+        let history_prompt = if let Some(action) = self.prompt_action {
+            selection::history_prompt_for(action, sess.history_prompt())
+        } else {
+            sess.history_prompt().to_string()
+        };
+        let mut launch_prompt = sess.launch_prompt();
+        if let Some(sel) = self.held_selection() {
+            // Selection is appended for the CLI only. Never written to history.
+            launch_prompt = format!("{launch_prompt}\n\nSelected text:\n{}", sel.text());
+        }
         let _ = history::append_prompt(self.entry, &history_prompt);
         let attachments = if self.has_tile {
             self.still_png
@@ -381,8 +495,18 @@ impl LayerShellHandler for Overlay {
         configure: LayerSurfaceConfigure,
         _: u32,
     ) {
-        self.width = NonZeroU32::new(configure.new_size.0).map_or(POPOVER_W, NonZeroU32::get);
-        self.height = NonZeroU32::new(configure.new_size.1).map_or(POPOVER_H, NonZeroU32::get);
+        let fallback_w = if self.phase == Phase::Bar {
+            BAR_W
+        } else {
+            POPOVER_W
+        };
+        let fallback_h = if self.phase == Phase::Bar {
+            BAR_H
+        } else {
+            POPOVER_H
+        };
+        self.width = NonZeroU32::new(configure.new_size.0).map_or(fallback_w, NonZeroU32::get);
+        self.height = NonZeroU32::new(configure.new_size.1).map_or(fallback_h, NonZeroU32::get);
         self.draw(qh);
         self.first_configure = false;
     }
@@ -521,6 +645,12 @@ impl PointerHandler for Overlay {
                     continue;
                 }
                 let (x, y) = event.position;
+                if self.phase == Phase::Bar {
+                    if let Some(hit) = draw::hit_bar(x, y, self.width) {
+                        self.on_bar(hit, qh);
+                    }
+                    continue;
+                }
                 if draw::hit_close(x, y, self.width) {
                     self.end = Some(OverlayEnd::Cancelled);
                 } else if draw::hit_remove(x, y, self.has_tile) {

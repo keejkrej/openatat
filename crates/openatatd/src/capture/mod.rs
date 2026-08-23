@@ -3,7 +3,8 @@
 //! Not in P0 (stubs / comments only):
 //!   C2 area, C3 window, C4 explicit display, C5 all-in-one,
 //!   C6 scrolling, C7 video, C8 GIF, C9 OCR,
-//!   C10 selection bar, C11–C12 file manager (Nautilus has no selection D-Bus API),
+//!   C10 selection bar lives in `crate::selection` (native layer-shell, not here),
+//!   C11–C12 file manager (Nautilus has no selection D-Bus API),
 //!   C13 current clipboard tile, C14 clipboard shelf, C15 app-layout,
 //!   C16 Orb drop, C17 annotation, C18 video trim, C19 record bezel.
 //!

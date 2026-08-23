@@ -27,12 +27,29 @@ pub struct HyprWindow {
     title: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutputGeom {
+    pub name: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, serde::Deserialize)]
 struct HyprMonitor {
     #[serde(default)]
     name: Option<String>,
     #[serde(default)]
     focused: bool,
+    #[serde(default)]
+    x: i32,
+    #[serde(default)]
+    y: i32,
+    #[serde(default)]
+    width: u32,
+    #[serde(default)]
+    height: u32,
 }
 
 pub fn active_window() -> Result<HyprWindow> {
@@ -48,6 +65,10 @@ pub fn active_window() -> Result<HyprWindow> {
 }
 
 pub fn active_output() -> Option<String> {
+    focused_output().map(|o| o.name)
+}
+
+pub fn focused_output() -> Option<OutputGeom> {
     let out = Command::new("hyprctl")
         .args(["monitors", "-j"])
         .output()
@@ -56,10 +77,28 @@ pub fn active_output() -> Option<String> {
         return None;
     }
     let monitors: Vec<HyprMonitor> = serde_json::from_slice(&out.stdout).ok()?;
-    monitors
-        .into_iter()
-        .find(|m| m.focused)
-        .and_then(|m| m.name)
+    monitors.into_iter().find(|m| m.focused).and_then(|m| {
+        Some(OutputGeom {
+            name: m.name?,
+            x: m.x,
+            y: m.y,
+            width: m.width,
+            height: m.height,
+        })
+    })
+}
+
+/// Hyprland cursor in screen coordinates. Fallback when AT-SPI extents are missing.
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    let out = Command::new("hyprctl").args(["cursorpos"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout);
+    let mut parts = s.split(',');
+    let x = parts.next()?.trim().parse().ok()?;
+    let y = parts.next()?.trim().parse().ok()?;
+    Some((x, y))
 }
 
 /// Abort insert when this returns true.
@@ -98,5 +137,14 @@ mod tests {
         let w: HyprWindow = serde_json::from_str(raw).unwrap();
         assert_eq!(w.address.as_deref(), Some("0xabc"));
         assert_eq!(w.class.as_deref(), Some("kitty"));
+    }
+
+    #[test]
+    fn parse_monitor_geometry() {
+        let raw = r#"{"name":"DP-1","focused":true,"x":1920,"y":0,"width":2560,"height":1440}"#;
+        let m: HyprMonitor = serde_json::from_str(raw).unwrap();
+        assert_eq!(m.name.as_deref(), Some("DP-1"));
+        assert_eq!(m.x, 1920);
+        assert_eq!(m.width, 2560);
     }
 }

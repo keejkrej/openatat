@@ -78,6 +78,8 @@ pub enum DaemonRequest {
         #[serde(default)]
         page: UiPage,
     },
+    /// Dev: probe the focused AT-SPI selection as a mouse-up. Not a hotkey.
+    SelectionProbe,
     Ping,
 }
 
@@ -144,5 +146,15 @@ mod tests {
         assert_eq!(DaemonRequest::decode(&line).unwrap(), req);
         assert!(line.contains("open-ui"));
         assert!(line.contains("history"));
+    }
+
+    #[test]
+    fn selection_probe_roundtrip() {
+        let line = DaemonRequest::SelectionProbe.encode().unwrap();
+        assert_eq!(
+            DaemonRequest::decode(&line).unwrap(),
+            DaemonRequest::SelectionProbe
+        );
+        assert!(line.contains("selection-probe"));
     }
 }
