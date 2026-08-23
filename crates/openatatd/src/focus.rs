@@ -11,7 +11,11 @@ pub fn snapshot() -> FocusSnapshot {
     {
         return macos::snapshot();
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows::snapshot();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let mut snap = FocusSnapshot::default();
         if let Ok(win) = active_window() {
@@ -101,7 +105,11 @@ pub fn cursor_pos() -> Option<(i32, i32)> {
     {
         return macos::cursor_pos();
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows::cursor_pos();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let out = Command::new("hyprctl").args(["cursorpos"]).output().ok()?;
         if !out.status.success() {
@@ -121,7 +129,11 @@ pub fn address_changed(expected: &FocusSnapshot) -> bool {
     {
         return macos::identity_changed(expected);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows::identity_changed(expected);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let Some(want) = expected.window_address.as_deref() else {
             return false;
@@ -144,6 +156,52 @@ pub fn macos_frontmost_bundle() -> Option<String> {
 #[cfg(not(target_os = "macos"))]
 pub fn macos_frontmost_bundle() -> Option<String> {
     None
+}
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use super::*;
+    use ::windows::Win32::Foundation::POINT;
+    use ::windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    pub fn snapshot() -> FocusSnapshot {
+        let mut snap = FocusSnapshot::default();
+        if let Some((hwnd, elem)) = crate::a11y::windows::focused_identity() {
+            snap.window_address = Some(elem.clone());
+            snap.element_id = Some(elem);
+            snap.pid = Some(hwnd as i32);
+        }
+        snap.app_id = crate::a11y::foreground_exe();
+        snap.title = crate::a11y::foreground_title();
+        snap.output = Some(monitor_name());
+        snap
+    }
+
+    pub fn identity_changed(expected: &FocusSnapshot) -> bool {
+        let now = snapshot();
+        let expected_hwnd = expected.window_address.as_deref().and_then(|s| {
+            crate::a11y::parse_win_identity(s).map(|(h, _)| h)
+        });
+        let now_hwnd = now.window_address.as_deref().and_then(|s| {
+            crate::a11y::parse_win_identity(s).map(|(h, _)| h)
+        });
+        crate::a11y::win_identity_changed(
+            expected_hwnd,
+            expected.element_id.as_deref(),
+            now_hwnd,
+            now.element_id.as_deref(),
+        )
+    }
+
+    pub fn cursor_pos() -> Option<(i32, i32)> {
+        let mut pt = POINT::default();
+        unsafe { GetCursorPos(&mut pt).ok()? };
+        Some((pt.x, pt.y))
+    }
+
+    fn monitor_name() -> String {
+        "foreground".into()
+    }
 }
 
 #[cfg(target_os = "macos")]

@@ -161,7 +161,15 @@ fn argv_looks_like_shell(argv: &[String]) -> bool {
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or(&w[0]);
-        matches!(prog, "sh" | "bash" | "zsh" | "fish" | "dash") && w[1] == "-c"
+        let flag = w[1].as_str();
+        let p = prog.to_ascii_lowercase();
+        let f = flag.to_ascii_lowercase();
+        (matches!(p.as_str(), "sh" | "bash" | "zsh" | "fish" | "dash") && f == "-c")
+            || (matches!(p.as_str(), "cmd" | "cmd.exe") && matches!(f.as_str(), "/c" | "-c"))
+            || (matches!(
+                p.as_str(),
+                "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe"
+            ) && matches!(f.as_str(), "-command" | "-c" | "/c"))
     })
 }
 
@@ -448,6 +456,34 @@ mod tests {
         assert_eq!(iterm.last().map(String::as_str), Some("do it"));
         let term = TerminalKind::TerminalApp.wrap(Path::new("/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"), cwd, &cli);
         assert_eq!(term.len(), 1, "Terminal.app wrap must not splice the prompt: {term:?}");
+        let wt = TerminalKind::WindowsTerminal.wrap(Path::new("wt.exe"), cwd, &cli);
+        assert_eq!(&wt[1..4], ["-d", "/tmp/openatat-scratch", "--"]);
+        assert_eq!(wt.last().map(String::as_str), Some("do it"));
+        let cmd = TerminalKind::WindowsConsole.wrap(Path::new("cmd.exe"), cwd, &cli);
+        assert_eq!(cmd, vec!["cmd.exe".to_string()]);
+        assert!(!cmd.iter().any(|a| a.eq_ignore_ascii_case("/c")));
+    }
+
+    #[test]
+    fn refuses_cmd_c_and_powershell_command() {
+        assert!(argv_looks_like_shell(&[
+            "cmd.exe".into(),
+            "/c".into(),
+            "echo pwned".into()
+        ]));
+        assert!(argv_looks_like_shell(&[
+            "powershell.exe".into(),
+            "-Command".into(),
+            "echo pwned".into()
+        ]));
+        assert!(!argv_looks_like_shell(&[
+            "wt.exe".into(),
+            "-d".into(),
+            "C:\\scratch".into(),
+            "--".into(),
+            "claude".into(),
+            "hello \"quoted\"".into()
+        ]));
     }
 
     #[test]
@@ -475,5 +511,14 @@ mod tests {
             Some(&TerminalKind::TerminalApp)
         );
         assert!(!super::terminals::DETECT_ORDER.contains(&TerminalKind::TerminalApp));
+    }
+
+    #[test]
+    fn windows_detect_order_prefers_terminal() {
+        assert_eq!(
+            super::terminals::DETECT_ORDER_WIN.first(),
+            Some(&TerminalKind::WindowsTerminal)
+        );
+        assert!(super::terminals::DETECT_ORDER_WIN.contains(&TerminalKind::WindowsConsole));
     }
 }

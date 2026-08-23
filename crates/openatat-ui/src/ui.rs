@@ -12,7 +12,7 @@ use openatat_ipc::UiPage;
 
 use crate::field::{self, read_content, LineEditor};
 use crate::history::{self, entry_label, format_timestamp};
-use crate::permissions::{LINUX_GRANTS, MAC_GRANTS};
+use crate::permissions::{LINUX_GRANTS, MAC_GRANTS, WIN_GRANTS};
 use crate::providers::{detect_on_path, PROVIDER_CHOICES};
 use crate::settings::{self, apply_provider_pick, AgentEdit};
 
@@ -436,6 +436,13 @@ impl Shell {
                          --demo and the unix socket still work.",
             ))
             .children(MAC_GRANTS.iter().map(|g| grant_card(g)))
+            .child(heading("Windows permissions"))
+            .child(div().text_sm().text_color(rgb(0x9aa0a6)).child(
+                "Each grant is optional. WGC privacy consent can be denied; \
+                         --demo and the trigger socket still work. \
+                         GraphicsCapturePicker is never used.",
+            ))
+            .children(WIN_GRANTS.iter().map(|g| grant_card(g)))
     }
 }
 

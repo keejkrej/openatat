@@ -1,7 +1,11 @@
-use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
+
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
+#[cfg(windows)]
+use std::net::{TcpListener, TcpStream};
 
 use openatat_ipc::{DaemonReply, DaemonRequest, TriggerSource};
 
@@ -104,6 +108,14 @@ pub fn run_daemon() -> Result<()> {
             }
         });
     }
+    #[cfg(target_os = "windows")]
+    {
+        return crate::windows_runtime::run_daemon_host(|| {
+            if let Err(e) = accept_loop() {
+                eprintln!("openatatd: socket: {e}");
+            }
+        });
+    }
 
     let mut fcitx = Fcitx5Backend;
     let mut ibus = IbusBackend;
@@ -125,16 +137,53 @@ fn accept_loop() -> Result<()> {
     );
     eprintln!("openatatd: idle — no overlay surface, no GPU window");
 
-    let listener = UnixListener::bind(&sock)?;
+    #[cfg(unix)]
+    {
+        let listener = UnixListener::bind(&sock)?;
+        for incoming in listener.incoming() {
+            match incoming {
+                Ok(stream) => {
+                    std::thread::Builder::new()
+                        .name("openatat-ipc".into())
+                        .spawn(move || {
+                            if let Err(e) = handle_unix_client(stream) {
+                                eprintln!("openatatd: client: {e}");
+                            }
+                        })
+                        .ok();
+                }
+                Err(e) => eprintln!("openatatd: accept: {e}"),
+            }
+        }
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        return accept_loop_windows();
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Err(Error::msg("no IPC transport on this OS"))
+    }
+}
+
+#[cfg(windows)]
+fn accept_loop_windows() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    let port_path = crate::paths::trigger_port_path();
+    if let Some(dir) = port_path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&port_path, format!("{port}\n"))?;
+    eprintln!("openatatd: Windows trigger TCP 127.0.0.1:{port} ({})", port_path.display());
     for incoming in listener.incoming() {
         match incoming {
             Ok(stream) => {
-                // Status / Settings must not wait on the overlay event loop.
-                // Overlay / agent still serialize via try_enter().
                 std::thread::Builder::new()
                     .name("openatat-ipc".into())
                     .spawn(move || {
-                        if let Err(e) = handle_client(stream) {
+                        if let Err(e) = handle_tcp_client(stream) {
                             eprintln!("openatatd: client: {e}");
                         }
                     })
@@ -155,21 +204,37 @@ fn bind_socket(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_client(stream: UnixStream) -> Result<()> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+fn handle_reader_writer<R: Read, W: Write>(reader: R, mut writer: W) -> Result<()> {
+    let mut reader = BufReader::new(reader);
     let mut line = String::new();
     reader.read_line(&mut line)?;
     let req = parse_request(&line)?;
     let reply = dispatch(req);
-    let mut stream = stream;
     writeln!(
-        stream,
+        writer,
         "{}",
         reply
             .encode()
             .unwrap_or_else(|_| r#"{"status":"error","message":"encode"}"#.into())
     )?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn handle_unix_client(stream: UnixStream) -> Result<()> {
+    let reader = stream.try_clone()?;
+    handle_reader_writer(reader, stream)
+}
+
+#[cfg(windows)]
+fn handle_tcp_client(stream: TcpStream) -> Result<()> {
+    let reader = stream.try_clone()?;
+    handle_reader_writer(reader, stream)
+}
+
+#[cfg(unix)]
+fn handle_client(stream: UnixStream) -> Result<()> {
+    handle_unix_client(stream)
 }
 
 fn parse_request(line: &str) -> Result<DaemonRequest> {
@@ -287,11 +352,49 @@ fn run_selection_probe() -> Result<()> {
 }
 
 fn send_line(req: &DaemonRequest) -> Result<()> {
-    let path = trigger_socket_path();
-    let mut stream = UnixStream::connect(&path).map_err(|e| {
+    #[cfg(unix)]
+    {
+        let path = trigger_socket_path();
+        let mut stream = UnixStream::connect(&path).map_err(|e| {
+            Error::msg(format!(
+                "cannot connect to {} ({e}). Is openatatd running?",
+                path.display()
+            ))
+        })?;
+        writeln!(stream, "{}", req.encode()?)?;
+        let mut reader = BufReader::new(stream);
+        let mut reply = String::new();
+        reader.read_line(&mut reply)?;
+        print!("{reply}");
+        return Ok(());
+    }
+    #[cfg(windows)]
+    {
+        return send_line_windows(req);
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = req;
+        Err(Error::msg("no IPC transport on this OS"))
+    }
+}
+
+#[cfg(windows)]
+fn send_line_windows(req: &DaemonRequest) -> Result<()> {
+    let port_path = crate::paths::trigger_port_path();
+    let port: u16 = std::fs::read_to_string(&port_path)
+        .map_err(|e| {
+            Error::msg(format!(
+                "cannot read {} ({e}). Is openatatd running?",
+                port_path.display()
+            ))
+        })?
+        .trim()
+        .parse()
+        .map_err(|_| Error::msg("trigger port file is not a number"))?;
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).map_err(|e| {
         Error::msg(format!(
-            "cannot connect to {} ({e}). Is openatatd running?",
-            path.display()
+            "cannot connect to 127.0.0.1:{port} ({e}). Is openatatd running?"
         ))
     })?;
     writeln!(stream, "{}", req.encode()?)?;
@@ -321,7 +424,9 @@ pub fn send_status() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::net::UnixListener;
+    #[cfg(unix)]
     use std::time::Duration;
 
     #[test]
@@ -405,6 +510,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(unix)]
     #[test]
     fn status_json_roundtrip_on_temp_socket() {
         let dir = std::env::temp_dir().join(format!(

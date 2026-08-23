@@ -41,6 +41,21 @@ pub fn looks_like_finder(id: &str) -> bool {
         || s.eq_ignore_ascii_case("Finder")
 }
 
+/// Explorer frontmost check. Class (`CabinetWClass`) or exe (`explorer.exe`).
+/// The window title is never consulted.
+pub fn frontmost_is_explorer(class_or_exe: Option<&str>, app_id: Option<&str>) -> bool {
+    [class_or_exe, app_id].into_iter().flatten().any(looks_like_explorer)
+}
+
+pub fn looks_like_explorer(id: &str) -> bool {
+    let s = id.trim();
+    let name = s.rsplit(['\\', '/']).next().unwrap_or(s);
+    name.eq_ignore_ascii_case("explorer.exe")
+        || name.eq_ignore_ascii_case("explorer")
+        || s.eq_ignore_ascii_case("CabinetWClass")
+        || s.eq_ignore_ascii_case("ExploreWClass")
+}
+
 /// Combine frontmost + Automation. `title` is accepted only so callers can
 /// pass it — it is never parsed into a path.
 pub fn decide_finder_tiles(
@@ -195,6 +210,23 @@ mod tests {
         assert!(frontmost_is_finder(None, Some("Finder")));
         assert!(!frontmost_is_finder(Some("com.apple.Safari"), Some("Safari")));
         assert!(!frontmost_is_finder(None, None));
+    }
+
+    #[test]
+    fn explorer_class_and_exe_not_title() {
+        assert!(frontmost_is_explorer(Some("CabinetWClass"), None));
+        assert!(frontmost_is_explorer(Some("C:\\Windows\\explorer.exe"), None));
+        assert!(frontmost_is_explorer(None, Some("explorer.exe")));
+        assert!(!frontmost_is_explorer(Some("Notepad"), Some("notepad.exe")));
+        assert!(!frontmost_is_explorer(None, None));
+        let title = "C:\\Users\\me\\Projects\\openatat";
+        let probe = decide_finder_tiles(
+            frontmost_is_explorer(Some("CabinetWClass"), None),
+            Err(AutomationError::Denied),
+            Some(title),
+        );
+        assert_eq!(probe, FinderProbe::Denied);
+        assert!(paths_from_title_bar(title).is_none());
     }
 
     #[test]

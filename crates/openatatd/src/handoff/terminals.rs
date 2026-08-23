@@ -29,12 +29,24 @@ pub const DETECT_ORDER_MAC: &[TerminalKind] = &[
     TerminalKind::TerminalApp,
 ];
 
+/// Windows preference: Windows Terminal, then cross-platform emulators.
+pub const DETECT_ORDER_WIN: &[TerminalKind] = &[
+    TerminalKind::WindowsTerminal,
+    TerminalKind::Wezterm,
+    TerminalKind::Alacritty,
+    TerminalKind::WindowsConsole,
+];
+
 pub fn detect_order() -> &'static [TerminalKind] {
     #[cfg(target_os = "macos")]
     {
         DETECT_ORDER_MAC
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        DETECT_ORDER_WIN
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         DETECT_ORDER
     }
@@ -52,6 +64,9 @@ pub enum TerminalKind {
     Iterm,
     #[allow(dead_code)]
     TerminalApp,
+    WindowsTerminal,
+    /// `cmd.exe` with cwd only — never `/c`.
+    WindowsConsole,
 }
 
 impl TerminalKind {
@@ -66,6 +81,8 @@ impl TerminalKind {
             Self::Xterm => "xterm",
             Self::Iterm => "iterm",
             Self::TerminalApp => "terminal",
+            Self::WindowsTerminal => "wt",
+            Self::WindowsConsole => "cmd",
         }
     }
 
@@ -80,6 +97,8 @@ impl TerminalKind {
             Self::Xterm => &["xterm"],
             Self::Iterm => &["iTerm2", "iterm2"],
             Self::TerminalApp => &["Terminal"],
+            Self::WindowsTerminal => &["wt.exe", "wt", "WindowsTerminal.exe"],
+            Self::WindowsConsole => &["cmd.exe", "cmd"],
         }
     }
 
@@ -94,6 +113,10 @@ impl TerminalKind {
             "xterm" => Some(Self::Xterm),
             "iterm" | "iterm2" => Some(Self::Iterm),
             "terminal" | "terminal.app" => Some(Self::TerminalApp),
+            "wt" | "wt.exe" | "windows-terminal" | "windowsterminal" => {
+                Some(Self::WindowsTerminal)
+            }
+            "cmd" | "cmd.exe" | "conhost" => Some(Self::WindowsConsole),
             _ => None,
         }
     }
@@ -171,6 +194,20 @@ impl TerminalKind {
             }
             // Terminal.app ignores argv. Spawn sets cwd via NSWorkspace; prompt.txt is data.
             Self::TerminalApp => {
+                vec![bin]
+            }
+            // wt.exe -d <scratch> -- <cli>. Prompt stays an argv element after `--`.
+            // https://learn.microsoft.com/windows/terminal/command-line-arguments
+            Self::WindowsTerminal => {
+                let mut v = vec![bin, "-d".into(), cwd];
+                if !cli.is_empty() {
+                    v.push("--".into());
+                    v.extend(cli.iter().cloned());
+                }
+                v
+            }
+            // cmd.exe opens in lpCurrentDirectory. Never `/c` — that would be a shell string.
+            Self::WindowsConsole => {
                 vec![bin]
             }
         }

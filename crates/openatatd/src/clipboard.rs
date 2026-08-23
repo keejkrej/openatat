@@ -16,12 +16,14 @@ pub fn copy_plain_or_html(text: &str, html: Option<&str>) -> Result<()> {
     {
         return macos::copy_plain_or_html(text, html);
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(target_os = "windows")]
+    {
+        return windows::copy_plain_or_html(text, html);
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = (text, html);
-        Err(Error::msg(
-            "clipboard copy is Linux/macOS in this tree (Win32 later)",
-        ))
+        Err(Error::msg("clipboard copy is unsupported on this OS"))
     }
 }
 
@@ -110,6 +112,55 @@ mod macos {
             let hs = NSString::from_str(html);
             let _ = pb.setString_forType(&hs, unsafe { NSPasteboardTypeHTML });
         }
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod windows {
+    use super::*;
+    use ::windows::core::HSTRING;
+    use ::windows::Win32::Foundation::HWND;
+    use ::windows::Win32::System::DataExchange::{
+        CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+    };
+    use ::windows::Win32::System::Ole::CF_UNICODETEXT;
+    use ::windows::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
+
+    pub fn copy_plain_or_html(text: &str, _html: Option<&str>) -> Result<()> {
+        let mut wide: Vec<u16> = text.encode_utf16().collect();
+        wide.push(0);
+        unsafe {
+            OpenClipboard(Some(HWND::default()))
+                .map_err(|e| Error::msg(format!("OpenClipboard: {e}")))?;
+            let _ = EmptyClipboard();
+            let bytes = wide.len() * 2;
+            let hg = GlobalAlloc(GMEM_MOVEABLE, bytes)
+                .map_err(|e| {
+                    let _ = CloseClipboard();
+                    Error::msg(format!("GlobalAlloc: {e}"))
+                })?;
+            let ptr = GlobalLock(hg);
+            if ptr.is_null() {
+                let _ = CloseClipboard();
+                return Err(Error::msg("GlobalLock failed"));
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
+            let _ = GlobalUnlock(hg);
+            if SetClipboardData(
+                u32::from(CF_UNICODETEXT.0),
+                Some(::windows::Win32::Foundation::HANDLE(hg.0)),
+            )
+            .is_err()
+            {
+                let _ = CloseClipboard();
+                return Err(Error::msg("SetClipboardData failed"));
+            }
+            let _ = CloseClipboard();
+        }
+        let _ = HSTRING::new();
         Ok(())
     }
 }

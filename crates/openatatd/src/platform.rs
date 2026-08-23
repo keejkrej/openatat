@@ -10,7 +10,11 @@ pub fn has_overlay_display() -> bool {
     {
         true
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(target_os = "windows")]
+    {
+        true
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         false
     }

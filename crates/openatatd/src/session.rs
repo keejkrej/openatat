@@ -37,9 +37,8 @@ impl Session {
             FinderProbe::Ready { cwd, files } => (cwd, files, true),
             FinderProbe::Denied => {
                 eprintln!(
-                    "openatatd: Finder is frontmost but Automation is denied — \
-                     not guessing paths from the title bar. \
-                     System Settings → Privacy & Security → Automation → openatatd → Finder."
+                    "openatatd: file manager is frontmost but cwd/selection is unavailable — \
+                     not guessing paths from the title bar."
                 );
                 (None, Vec::new(), false)
             }

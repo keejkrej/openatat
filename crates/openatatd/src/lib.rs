@@ -15,6 +15,8 @@ pub mod history;
 pub mod insert;
 #[cfg(target_os = "macos")]
 pub mod macos_runtime;
+#[cfg(target_os = "windows")]
+pub mod windows_runtime;
 pub mod overlay;
 pub mod paths;
 pub mod platform;
@@ -104,7 +106,8 @@ USAGE:
 
 Linux product trigger: Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 macOS product trigger: listen-only CGEvent tap → ImeFilter (Input Monitoring optional).
-The overlay is native (layer-shell / NSPanel), not gpui. See SPEC.md.
+Windows product trigger: process-local keyboard hook / Raw Input → ImeFilter (not a hotkey).
+The overlay is native (layer-shell / NSPanel / WS_EX_NOACTIVATE), not gpui. See SPEC.md.
 "
     );
 }

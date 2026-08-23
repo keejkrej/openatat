@@ -1,17 +1,31 @@
 use std::path::PathBuf;
 
 /// `~/.local/share/openatat` (or `$XDG_DATA_HOME/openatat`).
+/// Windows: `%LOCALAPPDATA%\openatat` unless XDG is set.
 pub fn data_dir() -> PathBuf {
     if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
         return PathBuf::from(xdg).join("openatat");
+    }
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(local).join("openatat");
+        }
     }
     home_dir().join(".local/share/openatat")
 }
 
 /// `~/.config/openatat` (or `$XDG_CONFIG_HOME/openatat`).
+/// Windows: `%APPDATA%\openatat` unless XDG is set.
 pub fn config_dir() -> PathBuf {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
         return PathBuf::from(xdg).join("openatat");
+    }
+    #[cfg(windows)]
+    {
+        if let Some(roam) = std::env::var_os("APPDATA") {
+            return PathBuf::from(roam).join("openatat");
+        }
     }
     home_dir().join(".config/openatat")
 }
@@ -22,9 +36,16 @@ pub fn agent_config_path() -> PathBuf {
 }
 
 /// `~/.cache/openatat` (or `$XDG_CACHE_HOME/openatat`). Scratch workspaces live here.
+/// Windows: `%LOCALAPPDATA%\openatat\cache` unless XDG is set.
 pub fn cache_dir() -> PathBuf {
     if let Some(xdg) = std::env::var_os("XDG_CACHE_HOME") {
         return PathBuf::from(xdg).join("openatat");
+    }
+    #[cfg(windows)]
+    {
+        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(local).join("openatat").join("cache");
+        }
     }
     home_dir().join(".cache/openatat")
 }
@@ -45,6 +66,11 @@ pub fn trigger_socket_path() -> PathBuf {
     runtime_dir().join("trigger.sock")
 }
 
+/// Windows TCP port file for `openatatd trigger` (127.0.0.1).
+pub fn trigger_port_path() -> PathBuf {
+    runtime_dir().join("trigger.port")
+}
+
 /// `$XDG_RUNTIME_DIR/openatat/status.json` — bar chip reads this, no GPU surface.
 pub fn status_file_path() -> PathBuf {
     runtime_dir().join("status.json")
@@ -58,9 +84,13 @@ pub(crate) fn xdg_test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 fn home_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home);
+    }
+    if let Some(profile) = std::env::var_os("USERPROFILE") {
+        return PathBuf::from(profile);
+    }
+    PathBuf::from(".")
 }
 
 #[cfg(test)]

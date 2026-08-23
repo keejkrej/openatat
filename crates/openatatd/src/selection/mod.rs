@@ -128,7 +128,7 @@ pub fn open_search(query: &str) -> Result<()> {
 
 /// Start the mouse-up watcher. Keyboard selections never arrive here.
 pub fn spawn_watcher(tx: std::sync::mpsc::Sender<SelectionHit>) {
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     {
         let (raw_tx, raw_rx) = std::sync::mpsc::channel();
         a11y::spawn_mouse_up_watcher(raw_tx);
@@ -148,7 +148,7 @@ pub fn spawn_watcher(tx: std::sync::mpsc::Sender<SelectionHit>) {
             })
             .ok();
     }
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let _ = tx;
     }
