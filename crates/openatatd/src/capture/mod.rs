@@ -7,7 +7,8 @@
 //!   C11–C12 file manager (Nautilus has no selection D-Bus API),
 //!   C13 current clipboard tile, C14 clipboard shelf, C15 app-layout,
 //!   C16 Orb drop lives in `crate::orb` (Wayland / Cocoa / Win32 drop target),
-//!   C17 annotation, C18 video trim, C19 record bezel.
+//!   C17 annotation lives in `openatat-ui` (spawned via overlay Edit),
+//!   C18 video trim, C19 record bezel.
 //!
 //! gpui `ScreenCaptureFrame` is a stub — capture stays in this daemon.
 
@@ -24,6 +25,15 @@ pub struct Still {
 }
 
 impl Still {
+    pub fn from_png(png: Vec<u8>) -> Result<Self> {
+        let img = image::load_from_memory(&png)?;
+        Ok(Self {
+            width: img.width(),
+            height: img.height(),
+            png,
+        })
+    }
+
     pub fn thumbnail_argb(&self, max_w: u32, max_h: u32) -> Result<(u32, u32, Vec<u8>)> {
         let img = image::load_from_memory(&self.png)?;
         let thumb = img.thumbnail(max_w, max_h);
@@ -208,16 +218,18 @@ mod macos {
         }
 
         let (tx, rx) = mpsc::channel();
-        let block = RcBlock::new(move |image: *mut objc2_core_graphics::CGImage, err: *mut NSError| {
-            if image.is_null() {
-                let msg = unsafe { err.as_ref() }
-                    .map(|e| e.localizedDescription().to_string())
-                    .unwrap_or_else(|| "SCScreenshotManager returned no image".into());
-                let _ = tx.send(Err(msg));
-            } else {
-                let _ = tx.send(cgimage_png(image as *mut std::ffi::c_void));
-            }
-        });
+        let block = RcBlock::new(
+            move |image: *mut objc2_core_graphics::CGImage, err: *mut NSError| {
+                if image.is_null() {
+                    let msg = unsafe { err.as_ref() }
+                        .map(|e| e.localizedDescription().to_string())
+                        .unwrap_or_else(|| "SCScreenshotManager returned no image".into());
+                    let _ = tx.send(Err(msg));
+                } else {
+                    let _ = tx.send(cgimage_png(image as *mut std::ffi::c_void));
+                }
+            },
+        );
         unsafe {
             SCScreenshotManager::captureImageWithFilter_configuration_completionHandler(
                 &filter,

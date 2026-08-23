@@ -15,16 +15,19 @@ pub mod history;
 pub mod insert;
 #[cfg(target_os = "macos")]
 pub mod macos_runtime;
-#[cfg(target_os = "windows")]
-pub mod windows_runtime;
 pub mod orb;
 pub mod overlay;
 pub mod paths;
 pub mod platform;
 pub mod selection;
 pub mod session;
+pub mod studio_attach;
 pub mod trigger;
 pub mod ui_spawn;
+#[cfg(target_os = "windows")]
+pub mod windows_runtime;
+
+use std::path::PathBuf;
 
 use crate::error::Result;
 use crate::selection::PromptAction;
@@ -41,6 +44,7 @@ pub struct Cli {
     pub show_orb_client: bool,
     pub orb_click: bool,
     pub open_ui: Option<UiPage>,
+    pub ui_image: Option<PathBuf>,
     pub prompt: Option<String>,
     pub selection_text: Option<String>,
     pub action: Option<PromptAction>,
@@ -58,12 +62,20 @@ impl Cli {
             show_orb_client: false,
             orb_click: false,
             open_ui: None,
+            ui_image: None,
             prompt: None,
             selection_text: None,
             action: None,
         };
+        let mut expect_image = false;
         for arg in args {
-            match arg.as_ref() {
+            let arg = arg.as_ref();
+            if expect_image {
+                cli.ui_image = Some(PathBuf::from(arg));
+                expect_image = false;
+                continue;
+            }
+            match arg {
                 "--demo" | "--once" => cli.once = true,
                 "--headless" => {
                     cli.headless = true;
@@ -77,6 +89,8 @@ impl Cli {
                 "--orb-click" => cli.orb_click = true,
                 "--settings" => cli.open_ui = Some(UiPage::Settings),
                 "--history" => cli.open_ui = Some(UiPage::History),
+                "--studio" => cli.open_ui = Some(UiPage::Studio),
+                "--image" => expect_image = true,
                 "--help" | "-h" => {
                     print_help();
                     std::process::exit(0);
@@ -88,6 +102,8 @@ impl Cli {
                         cli.selection_text = Some(p.to_string());
                     } else if let Some(p) = other.strip_prefix("--action=") {
                         cli.action = parse_action(p);
+                    } else if let Some(p) = other.strip_prefix("--image=") {
+                        cli.ui_image = Some(PathBuf::from(p));
                     }
                 }
             }
@@ -116,6 +132,8 @@ USAGE:
   openatatd --orb-click     Empty Orb session (no C1 still); headless or overlay
   openatatd --settings      Spawn openatat-ui Settings (activating; not the overlay)
   openatatd --history       Spawn openatat-ui History
+  openatatd --studio --image <path>
+                            Spawn openatat-ui C17 studio (local PNG/JPEG)
 
 Linux product trigger: Fcitx5 addon (ime/fcitx5-openatat), not a global bind.
 macOS product trigger: listen-only CGEvent tap → ImeFilter (Input Monitoring optional).
@@ -185,12 +203,18 @@ mod tests {
         assert_eq!(cli.open_ui, Some(UiPage::Settings));
         let cli = Cli::parse(["--history"]);
         assert_eq!(cli.open_ui, Some(UiPage::History));
+        let cli = Cli::parse(["--studio", "--image", "/tmp/shot.png"]);
+        assert_eq!(cli.open_ui, Some(UiPage::Studio));
+        assert_eq!(
+            cli.ui_image.as_deref(),
+            Some(std::path::Path::new("/tmp/shot.png"))
+        );
     }
 }
 
 pub fn run(cli: Cli) -> Result<()> {
     if let Some(page) = cli.open_ui {
-        return ui_spawn::spawn(page);
+        return ui_spawn::spawn_with(page, cli.ui_image.as_deref());
     }
     if cli.trigger_client {
         return daemon::send_trigger();

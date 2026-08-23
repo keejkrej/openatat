@@ -69,6 +69,7 @@ pub enum UiPage {
     #[default]
     Settings,
     History,
+    Studio,
 }
 
 /// Messages the IME addon / `openatatd trigger` send to the applet.
@@ -84,10 +85,13 @@ pub enum DaemonRequest {
     CommitText {
         text: String,
     },
-    /// Spawn `openatat-ui` (Settings / History). Not a global hotkey.
+    /// Spawn `openatat-ui` (Settings / History / Studio). Not a global hotkey.
     OpenUi {
         #[serde(default)]
         page: UiPage,
+        /// Local image path for [`UiPage::Studio`]. Never a URL.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
     },
     /// Dev: probe the focused AT-SPI selection as a mouse-up. Not a hotkey.
     SelectionProbe,
@@ -189,11 +193,33 @@ mod tests {
     fn open_ui_roundtrip() {
         let req = DaemonRequest::OpenUi {
             page: UiPage::History,
+            image: None,
         };
         let line = req.encode().unwrap();
         assert_eq!(DaemonRequest::decode(&line).unwrap(), req);
         assert!(line.contains("open-ui"));
         assert!(line.contains("history"));
+        assert!(!line.contains("image"));
+    }
+
+    #[test]
+    fn open_ui_studio_image_roundtrip() {
+        let req = DaemonRequest::OpenUi {
+            page: UiPage::Studio,
+            image: Some("/tmp/shot.png".into()),
+        };
+        let line = req.encode().unwrap();
+        assert_eq!(DaemonRequest::decode(&line).unwrap(), req);
+        assert!(line.contains("studio"));
+        assert!(line.contains("/tmp/shot.png"));
+        let old = DaemonRequest::decode(r#"{"cmd":"open-ui","page":"settings"}"#).unwrap();
+        assert_eq!(
+            old,
+            DaemonRequest::OpenUi {
+                page: UiPage::Settings,
+                image: None
+            }
+        );
     }
 
     #[test]
@@ -232,10 +258,16 @@ mod tests {
     #[test]
     fn hide_and_show_orb_roundtrip() {
         let hide = DaemonRequest::HideOrb.encode().unwrap();
-        assert_eq!(DaemonRequest::decode(&hide).unwrap(), DaemonRequest::HideOrb);
+        assert_eq!(
+            DaemonRequest::decode(&hide).unwrap(),
+            DaemonRequest::HideOrb
+        );
         assert_eq!(hide, r#"{"cmd":"hide-orb"}"#);
         let show = DaemonRequest::ShowOrb.encode().unwrap();
-        assert_eq!(DaemonRequest::decode(&show).unwrap(), DaemonRequest::ShowOrb);
+        assert_eq!(
+            DaemonRequest::decode(&show).unwrap(),
+            DaemonRequest::ShowOrb
+        );
         assert_eq!(show, r#"{"cmd":"show-orb"}"#);
     }
 

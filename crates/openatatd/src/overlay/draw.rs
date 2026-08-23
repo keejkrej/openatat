@@ -141,8 +141,18 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
                     1,
                 );
             }
-            fill_rect(&mut buf, width, HANDOFF_X, HANDOFF_Y, HANDOFF_W, HANDOFF_H, COL_ACCENT);
-            text(&mut buf, width, HANDOFF_X + 8, HANDOFF_Y + 6, "Handoff", COL_BG, 1);
+            fill_rect(
+                &mut buf, width, HANDOFF_X, HANDOFF_Y, HANDOFF_W, HANDOFF_H, COL_ACCENT,
+            );
+            text(
+                &mut buf,
+                width,
+                HANDOFF_X + 8,
+                HANDOFF_Y + 6,
+                "Handoff",
+                COL_BG,
+                1,
+            );
         }
     }
 
@@ -155,7 +165,8 @@ pub fn render(width: u32, height: u32, frame: &Frame, thumb: Option<(u32, u32, &
         }
         fill_rect(&mut buf, width, 154, 180, 70, 22, COL_DANGER);
         text(&mut buf, width, 160, 186, "remove", COL_BG, 1);
-        text(&mut buf, width, 154, 210, "auto-still", COL_MUTED, 1);
+        fill_rect(&mut buf, width, 154, 206, 70, 22, COL_ACCENT);
+        text(&mut buf, width, 166, 212, "edit", COL_BG, 1);
     }
 
     if frame.phase != Phase::Bar {
@@ -240,6 +251,11 @@ pub const HANDOFF_H: u32 = 22;
 
 pub fn hit_remove(x: f64, y: f64, has_tile: bool) -> bool {
     has_tile && x >= 154.0 && x <= 224.0 && y >= 180.0 && y <= 202.0
+}
+
+/// Overlay Edit: spawn `openatat-ui --studio`. Not a gpui hit target in the applet.
+pub fn hit_edit(x: f64, y: f64, has_tile: bool) -> bool {
+    has_tile && x >= 154.0 && x <= 224.0 && y >= 206.0 && y <= 228.0
 }
 
 pub fn hit_handoff(x: f64, y: f64, phase: Phase) -> bool {
@@ -371,6 +387,9 @@ mod tests {
     fn remove_hit_only_with_tile() {
         assert!(!hit_remove(160.0, 190.0, false));
         assert!(hit_remove(160.0, 190.0, true));
+        assert!(!hit_edit(160.0, 214.0, false));
+        assert!(hit_edit(160.0, 214.0, true));
+        assert!(!hit_edit(160.0, 190.0, true));
     }
 
     #[test]

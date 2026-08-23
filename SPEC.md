@@ -108,11 +108,11 @@ OpenAtat is a launcher, not a model host. Quick answers use a **visible argv tem
 | C14 | Clipboard history shelf | No | Atat `⌘⇧V`. Passwords never enter history. |
 | C15 | App-layout / a11y-tree tile | No | When focus is clearly not a text field. |
 | C16 | Drag-and-drop onto the Orb | **Yes** | Wayland / macOS / Win32 drop targets. Files, images, text become tiles. Never scrape Nautilus / Explorer / Finder titles. |
-| C17 | Annotation / crop before send | No | Studio lives in `openatat-ui`. |
+| C17 | Annotation / crop before send | **P2** | Studio in `openatat-ui` (`--studio --image`). Overlay **Edit** only spawns that process. |
 | C18 | Video trim / export | No | Studio. |
 | C19 | Recording keyboard bezel | No | KeyCastr-style overlay during record. |
 
-C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C16 is live: drag-drop onto the Orb (Wayland / Cocoa / Win32; never a title-bar scrape). C6–C19 stay in this inventory so later work does not invent a second taxonomy.
+C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Windows. C10 is live on Linux (mouse-up + AT-SPI), Mac (mouse-up + AXSelectedText), and Windows (mouse-up + UIA TextPattern). C11/C12 are live on Mac via Finder Automation and on Windows via Explorer `IShellWindows` (never the title bar). C16 is live: drag-drop onto the Orb (Wayland / Cocoa / Win32; never a title-bar scrape). C17 annotation is live in `openatat-ui` (local PNG/JPEG, no upload). C18 video studio is later. C6–C19 stay in this inventory so later work does not invent a second taxonomy.
 
 ## 3. OS API matrix
 
@@ -130,7 +130,7 @@ C1 is grim on Linux, ScreenCaptureKit on Mac, and WGC `CreateForMonitor` on Wind
 | Focus identity | `hyprctl activewindow` **address** | PID + AX window | `HWND` + UIA RuntimeId |
 | Clipboard | `wlr-data-control` via `wl-clipboard-rs`, `wl-copy` fallback | `NSPasteboard` | Win32 clipboard |
 | File manager | Nautilus: no selection D-Bus API — do not fake paths | Finder Automation | Explorer `IShellWindows` → `IFolderView`. Never the title bar. |
-| Settings / studio | `openatat-ui` gpui-ce, on demand (Settings + history now; studio later) | same | same |
+| Settings / studio | `openatat-ui` gpui-ce, on demand (Settings + history + C17 studio; first-run later) | same | same |
 | Bar chip | Quickshell plugin `openatat.chip` (`omarchy/openatat`). Status via `{"cmd":"status"}` on `trigger.sock` and `$XDG_RUNTIME_DIR/openatat/status.json` (`idle` / `busy` / `error`). Click = `open-ui` Settings (no-op if UI lacks gpui). **Not** Waybar. | menu extra / Orb | tray later |
 | Capture in gpui | `ScreenCaptureFrame` is a stub — do not use | stub | stub |
 
@@ -280,7 +280,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - Fcitx5 addon (`ime/fcitx5-openatat`) that implements the filter contract. **Done for the trigger path.**
 - BYO CLI runner (template, scratch dir, no shell interpolation). **Done.** Provider pick is `~/.config/openatat/agent.toml`.
 - Preview refine (`R`). **Done.**
-- `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio / first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
+- `openatat-ui` Settings + history browser (gpui-ce), spawn/quit. **Done.** Studio (C17) is P2; first-run still later. The GPU dep is feature-gated on `openatat-ui` only (`--features gpui`) so applet tests stay display-free.
 - Selection bar (C10) for Linux mouse selections when AT-SPI reports selected text. **Done.** Keyboard selections do not summon. Browsers/Electron that expose no selection are skipped (no clipboard save/restore). User-defined prompts and an exclude list can wait on Settings.
 - Quickshell bar chip (not Waybar). **Done.** Plugin source in `omarchy/openatat/`; daemon exposes `{"cmd":"status"}` / `status.json`.
 - Handoff to a terminal. **Done on Linux, macOS, and Windows.**
@@ -290,8 +290,8 @@ The addon (not the overlay) deletes the two characters from the client — typic
 - Mac `NSPanel` + ScreenCaptureKit + AX + Finder. **Done for the overlay / trigger / C1 / insert / C10 / Finder / handoff path.**
 - Windows `WS_EX_NOACTIVATE` + WGC + UIA. **Done for the overlay / trigger / C1 / insert / C10 / Explorer / handoff path.**
 - Orb (no summon hotkey). **Done.** Click opens an empty prompt (no C1). C16 drop is live. Hide is this-launch only via socket / right-click (Mac: NSStatusItem).
-- Studio / annotation in `openatat-ui`.
-- Clipboard shelf, scrolling capture, OCR, recording.
+- Studio / annotation in `openatat-ui`. **Done.** `openatat-ui --features gpui -- --studio --image <png>`. Overlay Edit only spawns that binary. Video studio (C18) is later.
+- Clipboard shelf, scrolling capture, OCR, recording. Video trim / export stays later.
 - Nautilus: do not invent a D-Bus API; document a user-driven tile or a future GNOME extension.
 
 ## 8. Landmines
@@ -310,7 +310,7 @@ The addon (not the overlay) deletes the two characters from the client — typic
 12. **No bundled model.** BYO CLI on PATH; `echo` dummy only when nothing is installed. Never splice the prompt into a shell string.
 13. **Synthetic backspaces** into the client are a last resort and must be gated on the same focus address.
 14. **AT-SPI in browsers / Electron / games** is incomplete. Clipboard-first saves the result.
-15. **Recording, scrolling, OCR, shelf, studio** are out of P0. Stubs and comments only. The Orb is implemented (not a stub).
+15. **Recording, scrolling, OCR, shelf, video studio (C18)** are out of P0. Stubs and comments only. The Orb is implemented. C17 still annotation is implemented in `openatat-ui` (not a stub).
 
 ## 9. Crate choices (P0)
 

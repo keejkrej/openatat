@@ -2,10 +2,10 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::sync::Mutex;
 
-#[cfg(unix)]
-use std::os::unix::net::{UnixListener, UnixStream};
 #[cfg(windows)]
 use std::net::{TcpListener, TcpStream};
+#[cfg(unix)]
+use std::os::unix::net::{UnixListener, UnixStream};
 
 use openatat_ipc::{DaemonReply, DaemonRequest, TriggerSource};
 
@@ -210,7 +210,10 @@ fn accept_loop_windows() -> Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(&port_path, format!("{port}\n"))?;
-    eprintln!("openatatd: Windows trigger TCP 127.0.0.1:{port} ({})", port_path.display());
+    eprintln!(
+        "openatatd: Windows trigger TCP 127.0.0.1:{port} ({})",
+        port_path.display()
+    );
     for incoming in listener.incoming() {
         match incoming {
             Ok(stream) => {
@@ -294,12 +297,15 @@ fn parse_request(line: &str) -> Result<DaemonRequest> {
 fn dispatch(req: DaemonRequest) -> DaemonReply {
     match req {
         DaemonRequest::Ping | DaemonRequest::Status => presence_reply(),
-        DaemonRequest::OpenUi { page } => match crate::ui_spawn::spawn(page) {
-            Ok(()) => DaemonReply::Ok,
-            Err(e) => DaemonReply::Error {
-                message: e.to_string(),
-            },
-        },
+        DaemonRequest::OpenUi { page, image } => {
+            let path = image.as_deref().map(std::path::Path::new);
+            match crate::ui_spawn::spawn_with(page, path) {
+                Ok(()) => DaemonReply::Ok,
+                Err(e) => DaemonReply::Error {
+                    message: e.to_string(),
+                },
+            }
+        }
         DaemonRequest::CommitText { .. } => {
             // The addon owns the IME filter. A lone commit without a trigger
             // is ignored in the daemon (filter lives in-process in tests).

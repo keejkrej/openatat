@@ -3786,7 +3786,9 @@ dependencies = [
 name = "openatat-ui"
 version = "0.1.0"
 dependencies = [
+ "font8x8",
  "gpui-ce",
+ "image",
  "openatat-ipc",
  "serde",
  "serde_json",
